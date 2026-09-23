@@ -491,7 +491,18 @@ async function showOrder(id){
   m.querySelector('#detailForm').onsubmit=async e=>{
     e.preventDefault();
     const fd=new FormData(e.target), d=Object.fromEntries(fd.entries());
-    for(const k of ['geplanter_beginn','fertigstellung','provisions_rechnungsdatum','provisions_zahlungsdatum']) if(!d[k]) d[k]=null;
+
+    // PostgreSQL DATE-Spalten dürfen niemals einen leeren String erhalten.
+    // Leere Datumsfelder werden deshalb immer als NULL gespeichert.
+    const dateFields=['geplanter_beginn','fertigstellung','provisions_rechnungsdatum','provisions_zahlungsdatum'];
+    for(const k of dateFields){
+      const value=String(d[k]??'').trim();
+      d[k]=/^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+    }
+
+    // Auch andere leere Formularfelder nicht als leeren String an Supabase senden.
+    for(const k of Object.keys(d)) if(d[k]==='') d[k]=null;
+
     for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto']) d[k]=Number(d[k]||0);
     for(const k of ['provision_abgerechnet','provision_bezahlt']) d[k]=d[k]==='true';
     d.versicherung=d.versicherung===''?null:d.versicherung==='true';
