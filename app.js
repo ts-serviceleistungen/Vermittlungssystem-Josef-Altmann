@@ -45,7 +45,24 @@ function renderAuth(){
     $('#loginView').classList.remove('hidden');
   }
 }
-async function loadBase(){const [c,f,o]=await Promise.all([db.from('vermittlung_kunden').select('*').order('nachname'),db.from('vermittlung_firmen').select('*').order('firmenname'),db.from('vermittlung_auftraege').select('*').order('erstellt_am',{ascending:false})]);customers=c.data||[];companies=f.data||[];orders=o.data||[];}
+async function loadBase(){
+  const [c,f,o]=await Promise.all([
+    db.from('vermittlung_kunden').select('*').order('nachname'),
+    db.from('vermittlung_firmen').select('*').order('firmenname'),
+    db.from('vermittlung_auftraege').select('*').order('erstellt_am',{ascending:false})
+  ]);
+  if(c.error) console.error('Kunden laden:',c.error);
+  if(f.error) console.error('Firmen laden:',f.error);
+  if(o.error) console.error('Aufträge laden:',o.error);
+  customers=c.data||[];
+  companies=f.data||[];
+  orders=o.data||[];
+  const errors=[c.error,f.error,o.error].filter(Boolean);
+  if(errors.length){
+    toast('Daten konnten teilweise nicht geladen werden. Bitte Internetverbindung prüfen.');
+  }
+  return !errors.length;
+}
 const GOOGLE_SYNC_URL_KEY='vermittlung_google_sync_url';
 const GOOGLE_SYNC_TOKEN_KEY='vermittlung_google_sync_token';
 function googleSyncUrl(){return localStorage.getItem(GOOGLE_SYNC_URL_KEY)||''}
@@ -146,7 +163,7 @@ function renderCustomers(){
     <td>${esc((c.strasse||'')+' '+(c.plz||'')+' '+(c.ort||''))}</td>
     <td><button class="secondary" onclick="deleteCustomer('${c.id}')">Löschen</button></td>
   </tr>`).join('');
-  const body=`<div class="toolbar"><button class="primary" onclick="newCustomer()">+ Neuer Kunde</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Firma</th><th>Telefon</th><th>E-Mail</th><th>Adresse</th><th>Aktion</th></tr></thead><tbody>${rows||'<tr><td colspan="6">Noch keine Kunden.</td></tr>'}</tbody></table></div>`;
+  const body=`<div class="toolbar"><button class="primary" onclick="newCustomer()">+ Neuer Kunde</button><button class="secondary" onclick="navigate('customers')">Aktualisieren</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Firma</th><th>Telefon</th><th>E-Mail</th><th>Adresse</th><th>Aktion</th></tr></thead><tbody>${rows||'<tr><td colspan="6">Noch keine Kunden.</td></tr>'}</tbody></table></div>`;
   $('#main').innerHTML=page('Kunden',body)
 }
 
@@ -200,7 +217,7 @@ function renderCompanies(){
     <td>${esc(c.ansprechpartner||'')}</td><td>${esc(c.gewerk||'')}</td><td>${esc(c.telefon||'')}</td><td>${esc(c.email||'')}</td>
     <td><button class="secondary" onclick="deleteCompany('${c.id}')">Löschen</button></td>
   </tr>`).join('');
-  const body=`<div class="toolbar"><button class="primary" onclick="newCompany()">+ Neue Firma</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Ansprechpartner</th><th>Gewerk</th><th>Telefon</th><th>E-Mail</th><th>Aktion</th></tr></thead><tbody>${rows||'<tr><td colspan="6">Noch keine Firmen.</td></tr>'}</tbody></table></div>`;
+  const body=`<div class="toolbar"><button class="primary" onclick="newCompany()">+ Neue Firma</button><button class="secondary" onclick="navigate('companies')">Aktualisieren</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Ansprechpartner</th><th>Gewerk</th><th>Telefon</th><th>E-Mail</th><th>Aktion</th></tr></thead><tbody>${rows||'<tr><td colspan="6">Noch keine Firmen.</td></tr>'}</tbody></table></div>`;
   $('#main').innerHTML=page('Firmen / Subunternehmer',body)
 }
 
