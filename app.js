@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const {data}=await db.auth.getSession(); currentUser=data.session?.user||null; renderAuth();
 });
 async function login(e){e.preventDefault();$('#loginMsg').textContent='';const {error}=await db.auth.signInWithPassword({email:$('#email').value,password:$('#password').value});if(error)$('#loginMsg').textContent=error.message;}
-function renderAuth(){if(currentUser){$('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');$('#userName').textContent=currentUser.email||'';const savedPage=localStorage.getItem('vermittlung_last_page')||'dashboard';navigate(savedPage);}else{$('#appView').classList.add('hidden');$('#loginView').classList.remove('hidden');}}
+function renderAuth(){if(currentUser){$('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');$('#userName').textContent=currentUser.email||'';navigate(localStorage.getItem('vermittlung_current_page')||'dashboard');}else{$('#appView').classList.add('hidden');$('#loginView').classList.remove('hidden');}}
 async function loadBase(){const [c,f,o]=await Promise.all([db.from('vermittlung_kunden').select('*').order('nachname'),db.from('vermittlung_firmen').select('*').order('firmenname'),db.from('vermittlung_auftraege').select('*').order('erstellt_am',{ascending:false})]);customers=c.data||[];companies=f.data||[];orders=o.data||[];}
 const GOOGLE_SYNC_URL_KEY='vermittlung_google_sync_url';
 const GOOGLE_SYNC_TOKEN_KEY='vermittlung_google_sync_token';
@@ -53,96 +53,42 @@ function renderGoogle(){
   $('#googleForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);localStorage.setItem(GOOGLE_SYNC_URL_KEY,fd.get('url').trim());localStorage.setItem(GOOGLE_SYNC_TOKEN_KEY,fd.get('token').trim());toast('Google-Verbindung gespeichert');};
 }
 function openGoogleSetup(){const u=googleSyncUrl(),t=googleSyncToken();if(!u||!t){alert('Bitte zuerst URL und Sicherheitsschlüssel speichern.');return}window.open(u+'?action=setup&token='+encodeURIComponent(t),'_blank','noopener');}
-function toast(message){
-  const el=$('#toast');
-  if(!el){console.log(message);return}
-  el.textContent=message;
-  el.classList.add('show');
-  clearTimeout(window.__vermittlungToastTimer);
-  window.__vermittlungToastTimer=setTimeout(()=>el.classList.remove('show'),3000);
-}
-
 async function syncGoogle(){
   const u=googleSyncUrl(),t=googleSyncToken();
   if(!u||!t){alert('Bitte zuerst die Google-Verbindung speichern.');navigate('google');return}
   await loadBase();
   const payload={action:'syncAll',token:t,user:currentUser?.email||'',generatedAt:new Date().toISOString(),orders,customers,companies};
   try{
-    let frame=document.getElementById('vermittlungGoogleSyncFrame');
-    if(!frame){
-      frame=document.createElement('iframe');
-      frame.id='vermittlungGoogleSyncFrame';
-      frame.name='vermittlungGoogleSyncFrame';
-      frame.style.display='none';
-      document.body.appendChild(frame);
-    }
-    const form=document.createElement('form');
-    form.method='POST';
-    form.action=u;
-    form.target='vermittlungGoogleSyncFrame';
-    form.style.display='none';
-    const input=document.createElement('input');
-    input.type='hidden';
-    input.name='payload';
-    input.value=JSON.stringify(payload);
-    form.appendChild(input);
-    document.body.appendChild(form);
-    form.submit();
-    form.remove();
-    const s=$('#googleStatus');
-    if(s)s.textContent='Synchronisierung wurde an Google übergeben. Bitte kurz warten, bis die Tabellen aktualisiert sind.';
+    await fetch(u,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
+    const s=$('#googleStatus'); if(s)s.textContent='Synchronisierung wurde an Google übergeben. Bitte kurz warten, bis die Tabellen aktualisiert sind.';
     toast('Synchronisierung gestartet');
   }catch(e){alert('Google-Synchronisierung konnte nicht gestartet werden: '+e.message)}
 }
 
-async function navigate(page){localStorage.setItem('vermittlung_last_page',page);document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===page));await loadBase();({dashboard:renderDashboard,orders:renderOrders,customers:renderCustomers,companies:renderCompanies,commissions:renderCommissions,reports:renderReports,google:renderGoogle}[page]||renderDashboard)();}
+async function navigate(page){localStorage.setItem('vermittlung_current_page',page);document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===page));await loadBase();({dashboard:renderDashboard,orders:renderOrders,customers:renderCustomers,companies:renderCompanies,commissions:renderCommissions,reports:renderReports,google:renderGoogle}[page]||renderDashboard)();}
 function page(title,body,actions=''){return `<div class="page"><div class="page-head"><h2>${title}</h2><div>${actions}</div></div>${body}</div>`}
-function renderDashboard(){const open=orders.filter(o=>!['Abgeschlossen','Abgerechnet','Storniert'].includes(o.status));const vol=orders.filter(o=>o.status!=='Storniert').reduce((s,o)=>s+Number(o.auftragswert_netto||0),0);const prov=orders.filter(o=>o.status!=='Storniert').reduce((s,o)=>s+Number(o.provision||0),0);const unpaid=orders.filter(o=>o.status!=='Storniert'&&!o.provision_bezahlt).reduce((s,o)=>s+Number(o.provision||0),0);const urgent=open.filter(o=>o.prioritaet==='Dringend');$('#main').innerHTML=page('Dashboard',`<div class="grid cards"><div class="card"><div class="label">Offene Aufträge</div><div class="value">${open.length}</div></div><div class="card"><div class="label">Auftragsvolumen</div><div class="value">${money(vol)}</div></div><div class="card"><div class="label">Provision gesamt</div><div class="value green">${money(prov)}</div></div><div class="card"><div class="label">Provision offen</div><div class="value red">${money(unpaid)}</div></div></div><div class="grid" style="grid-template-columns:2fr 1fr;margin-top:18px"><div class="panel"><h3>Aktuelle Aufträge</h3>${orderTable(orders.slice(0,8))}</div><div class="panel"><h3>Dringend</h3><p>${urgent.length} dringende offene Aufträge</p><button class="secondary" onclick="navigate('orders')">Aufträge öffnen</button></div></div>`)}
-function orderTable(list){if(!list.length)return '<p class="muted">Keine Aufträge vorhanden.</p>';return `<div class="table-wrap"><table class="table"><thead><tr><th>Nr.</th><th>Bereich</th><th>Status</th><th>Auftrag</th><th>Wert</th><th>Provision</th><th></th></tr></thead><tbody>${list.map(o=>`<tr><td><button class="secondary" onclick="showOrder('${o.id}')">${esc(o.auftragsnummer||'—')}</button></td><td>${esc(o.bereich)}</td><td><span class="badge status">${esc(o.status)}</span></td><td>${esc(o.beschreibung||'—')}</td><td>${money(o.auftragswert_netto)}</td><td>${money(o.provision)}</td><td><button class="secondary" onclick="deleteOrder('${o.id}')">Löschen</button></td></tr>`).join('')}</tbody></table></div>`}
+function renderDashboard(){
+const active=orders.filter(o=>o.status!=='Storniert'),open=orders.filter(o=>!['Abgeschlossen','Abgerechnet','Storniert'].includes(o.status));
+const vol=active.reduce((s,o)=>s+Number(o.auftragswert_netto||0),0),prov=active.reduce((s,o)=>s+Number(o.provision||0),0);
+const paid=active.filter(o=>o.provision_bezahlt).reduce((s,o)=>s+Number(o.provision||0),0),urgent=open.filter(o=>o.prioritaet==='Dringend').length;
+const neu=orders.filter(o=>o.status==='Neue Anfrage').length,kv=orders.filter(o=>['Kostenvoranschlag angefordert','Kostenvoranschlag erhalten'].includes(o.status)).length;
+$('#main').innerHTML=page('Dashboard',`<div class="hero-dashboard"><div><span class="eyebrow">VERMITTLUNGSSYSTEM</span><h1>Übersicht</h1><p>Alle wichtigen Kennzahlen und Vorgänge auf einen Blick.</p></div><button class="primary big-action" onclick="newOrder()">＋ Neuer Auftrag</button></div>
+<div class="dashboard-cards">
+<button class="dash-card dark" onclick="navigate('orders')"><b>↗</b><span>Auftragsvolumen</span><strong>${money(vol)}</strong><small>${active.length} aktive Aufträge</small></button>
+<button class="dash-card blue" onclick="navigate('commissions')"><b>€</b><span>Provision gesamt</span><strong>${money(prov)}</strong><small>10 % Vermittlungsprovision</small></button>
+<button class="dash-card green" onclick="navigate('commissions')"><b>✓</b><span>Provision bezahlt</span><strong>${money(paid)}</strong><small>bereits eingegangen</small></button>
+<button class="dash-card orange" onclick="navigate('commissions')"><b>!</b><span>Provision offen</span><strong>${money(prov-paid)}</strong><small>noch nicht bezahlt</small></button></div>
+<div class="quick-grid"><button onclick="navigate('orders')"><b>${open.length}</b><span>Offene Aufträge</span></button><button onclick="navigate('orders')"><b>${neu}</b><span>Neue Anfragen</span></button><button onclick="navigate('orders')"><b>${kv}</b><span>Kostenvoranschläge</span></button><button onclick="navigate('orders')"><b>${urgent}</b><span>Dringende Aufträge</span></button><button onclick="navigate('customers')"><b>${customers.length}</b><span>Kunden</span></button><button onclick="navigate('companies')"><b>${companies.length}</b><span>Firmen / Subunternehmer</span></button></div>
+<div class="dashboard-panels"><div class="panel"><div class="panel-title-row"><div><span class="eyebrow">AKTUELL</span><h3>Letzte Aufträge</h3></div><button class="secondary" onclick="navigate('orders')">Alle anzeigen →</button></div>${orderTable(orders.slice(0,6))}</div><div class="panel dashboard-side"><span class="eyebrow">SCHNELLZUGRIFF</span><h3>Bereiche</h3><button onclick="navigate('orders')">📋 Aufträge <span>→</span></button><button onclick="navigate('customers')">👤 Kunden <span>→</span></button><button onclick="navigate('companies')">🏢 Firmen <span>→</span></button><button onclick="navigate('reports')">📊 Monats- / Jahresabrechnung <span>→</span></button></div></div>`)}
+
+function orderTable(list){if(!list.length)return '<p class="muted">Keine Aufträge vorhanden.</p>';return `<div class="table-wrap"><table class="table"><thead><tr><th>Nr.</th><th>Bereich</th><th>Status</th><th>Auftrag</th><th>Wert</th><th>Provision</th><th></th></tr></thead><tbody>${list.map(o=>`<tr><td><button class="secondary" onclick="showOrder('${o.id}')">${esc(o.auftragsnummer||'—')}</button></td><td>${esc(o.bereich)}</td><td><span class="badge status">${esc(o.status)}</span></td><td>${esc(o.beschreibung||'—')}</td><td>${money(o.auftragswert_netto)}</td><td>${money(o.provision)}</td><td><button class="delete-btn" onclick="deleteOrder('${o.id}');event.stopPropagation()">Löschen</button></td></tr>`).join('')}</tbody></table></div>`}
 function renderOrders(){const body=`<div class="toolbar"><input id="orderSearch" placeholder="Aufträge suchen…" oninput="filterOrders()"><button class="primary" onclick="newOrder()">+ Neuer Auftrag</button></div><div id="ordersTable">${orderTable(orders)}</div>`;$('#main').innerHTML=page('Aufträge',body)}
 function filterOrders(){const q=$('#orderSearch').value.toLowerCase();$('#ordersTable').innerHTML=orderTable(orders.filter(o=>JSON.stringify(o).toLowerCase().includes(q)))}
-function renderCustomers(){const rows=customers.map(c=>`<tr><td>${esc((c.vorname||'')+' '+(c.nachname||''))}</td><td>${esc(c.firma||'')}</td><td>${esc(c.telefon||'')}</td><td>${esc(c.email||'')}</td><td>${esc((c.strasse||'')+' '+(c.plz||'')+' '+(c.ort||''))}</td><td><button class="secondary" onclick="deleteCustomer('${c.id}')">Löschen</button></td></tr>`).join('');$('#main').innerHTML=page('Kunden',`<div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Firma</th><th>Telefon</th><th>E-Mail</th><th>Adresse</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6">Noch keine Kunden.</td></tr>'}</tbody></table></div>`)}
-function renderCompanies(){const rows=companies.map(c=>`<tr><td>${esc(c.firmenname)}</td><td>${esc(c.ansprechpartner||'')}</td><td>${esc(c.gewerk||'')}</td><td>${esc(c.telefon||'')}</td><td>${esc(c.email||'')}</td><td><button class="secondary" onclick="deleteCompany('${c.id}')">Löschen</button></td></tr>`).join('');$('#main').innerHTML=page('Firmen / Subunternehmer',`<div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Ansprechpartner</th><th>Gewerk</th><th>Telefon</th><th>E-Mail</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6">Noch keine Firmen.</td></tr>'}</tbody></table></div>`)}
-async function deleteOrder(id){
-  const o=orders.find(x=>x.id===id);
-  if(!o)return;
-  if(!confirm(`Auftrag ${o.auftragsnummer||''} wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`))return;
-  for(const table of ['vermittlung_provisionen','vermittlung_dokumente','vermittlung_verlauf']){
-    const {error}=await db.from(table).delete().eq('auftrag_id',id);
-    if(error && !String(error.message||'').toLowerCase().includes('relation')){alert('Löschen fehlgeschlagen: '+error.message);return;}
-  }
-  const {error}=await db.from('vermittlung_auftraege').delete().eq('id',id);
-  if(error){alert('Auftrag konnte nicht gelöscht werden: '+error.message);return;}
-  toast('Auftrag gelöscht');
-  navigate('orders');
-}
-
-async function deleteCustomer(id){
-  const c=customers.find(x=>x.id===id);
-  if(!c)return;
-  const {data:linked,error:checkError}=await db.from('vermittlung_auftraege').select('id').eq('kunde_id',id).limit(1);
-  if(checkError){alert('Prüfung fehlgeschlagen: '+checkError.message);return;}
-  if((linked||[]).length){alert('Dieser Kunde ist noch einem Auftrag zugeordnet und kann deshalb nicht gelöscht werden.');return;}
-  if(!confirm(`Kunde ${(c.vorname||'')+' '+(c.nachname||'')} wirklich löschen?`))return;
-  const {error}=await db.from('vermittlung_kunden').delete().eq('id',id);
-  if(error){alert('Kunde konnte nicht gelöscht werden: '+error.message);return;}
-  toast('Kunde gelöscht');
-  navigate('customers');
-}
-
-async function deleteCompany(id){
-  const c=companies.find(x=>x.id===id);
-  if(!c)return;
-  const {data:linked,error:checkError}=await db.from('vermittlung_auftraege').select('id').eq('ausfuehrende_firma_id',id).limit(1);
-  if(checkError){alert('Prüfung fehlgeschlagen: '+checkError.message);return;}
-  if((linked||[]).length){alert('Diese Firma ist noch einem Auftrag zugeordnet und kann deshalb nicht gelöscht werden.');return;}
-  if(!confirm(`Firma ${c.firmenname||''} wirklich löschen?`))return;
-  const {error}=await db.from('vermittlung_firmen').delete().eq('id',id);
-  if(error){alert('Firma konnte nicht gelöscht werden: '+error.message);return;}
-  toast('Firma gelöscht');
-  navigate('companies');
-}
-
+async function deleteCustomer(id){if(!confirm('Diesen Kunden wirklich löschen?'))return;const {error}=await db.from('vermittlung_kunden').delete().eq('id',id);if(error){alert('Kunde konnte nicht gelöscht werden: '+error.message);return}toast('Kunde gelöscht');navigate('customers')}
+async function deleteCompany(id){if(!confirm('Diese Firma wirklich löschen?'))return;const {error}=await db.from('vermittlung_firmen').delete().eq('id',id);if(error){alert('Firma konnte nicht gelöscht werden: '+error.message);return}toast('Firma gelöscht');navigate('companies')}
+async function deleteOrder(id){if(!confirm('Diesen Auftrag wirklich löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;const {error}=await db.from('vermittlung_auftraege').delete().eq('id',id);if(error){alert('Auftrag konnte nicht gelöscht werden: '+error.message);return}toast('Auftrag gelöscht');navigate('orders')}
+function renderCustomers(){const rows=customers.map(c=>`<tr><td>${esc((c.vorname||'')+' '+(c.nachname||''))}</td><td>${esc(c.firma||'')}</td><td>${esc(c.telefon||'')}</td><td>${esc(c.email||'')}</td><td>${esc((c.strasse||'')+' '+(c.plz||'')+' '+(c.ort||''))}</td><td><button class="delete-btn" onclick="deleteCustomer('${c.id}')">Löschen</button></td></tr>`).join('');$('#main').innerHTML=page('Kunden',`<div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Firma</th><th>Telefon</th><th>E-Mail</th><th>Adresse</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5">Noch keine Kunden.</td></tr>'}</tbody></table></div>`)}
+function renderCompanies(){const rows=companies.map(c=>`<tr><td>${esc(c.firmenname)}</td><td>${esc(c.ansprechpartner||'')}</td><td>${esc(c.gewerk||'')}</td><td>${esc(c.telefon||'')}</td><td>${esc(c.email||'')}</td><td><button class="delete-btn" onclick="deleteCompany('${c.id}')">Löschen</button></td></tr>`).join('');$('#main').innerHTML=page('Firmen / Subunternehmer',`<div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Ansprechpartner</th><th>Gewerk</th><th>Telefon</th><th>E-Mail</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5">Noch keine Firmen.</td></tr>'}</tbody></table></div>`)}
 function renderCommissions(){const active=orders.filter(o=>o.status!=='Storniert');const rows=active.map(o=>`<tr><td>${esc(o.auftragsnummer)}</td><td>${esc(o.bereich)}</td><td>${money(o.auftragswert_netto)}</td><td>${money(o.provision)}</td><td>${o.provision_abgerechnet?'Ja':'Nein'}</td><td>${o.provision_bezahlt?'Ja':'Nein'}</td></tr>`).join('');$('#main').innerHTML=page('Provisionen',`<div class="table-wrap"><table class="table"><thead><tr><th>Auftrag</th><th>Bereich</th><th>Auftragswert</th><th>Provision 10 %</th><th>Abgerechnet</th><th>Bezahlt</th></tr></thead><tbody>${rows||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>`)}
 function renderReports(){const active=orders.filter(o=>o.status!=='Storniert');const months={};const years={};active.forEach(o=>{const d=new Date(o.erstellt_am);const m=d.toLocaleDateString('de-DE',{month:'2-digit',year:'numeric'});const y=d.getFullYear();for(const [obj,key] of [[months,m],[years,y]]){obj[key]??={count:0,vol:0,prov:0,paid:0};obj[key].count++;obj[key].vol+=Number(o.auftragswert_netto||0);obj[key].prov+=Number(o.provision||0);if(o.provision_bezahlt)obj[key].paid+=Number(o.provision||0)}});const table=(obj)=>`<div class="table-wrap"><table class="table"><thead><tr><th>Zeitraum</th><th>Aufträge</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${Object.entries(obj).sort().reverse().map(([k,v])=>`<tr><td>${k}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('')||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>`;$('#main').innerHTML=page('Monats- / Jahresabrechnung',`<h3>Monat</h3>${table(months)}<h3 style="margin-top:25px">Jahr</h3>${table(years)}`)}
 function modal(content){const el=document.createElement('div');el.className='modal show';el.innerHTML=`<div class="modal-card">${content}</div>`;document.body.appendChild(el);return el}
