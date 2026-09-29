@@ -87,12 +87,103 @@ function filterOrders(){const q=$('#orderSearch').value.toLowerCase();$('#orders
 async function deleteCustomer(id){if(!confirm('Diesen Kunden wirklich löschen?'))return;const {error}=await db.from('vermittlung_kunden').delete().eq('id',id);if(error){alert('Kunde konnte nicht gelöscht werden: '+error.message);return}toast('Kunde gelöscht');navigate('customers')}
 async function deleteCompany(id){if(!confirm('Diese Firma wirklich löschen?'))return;const {error}=await db.from('vermittlung_firmen').delete().eq('id',id);if(error){alert('Firma konnte nicht gelöscht werden: '+error.message);return}toast('Firma gelöscht');navigate('companies')}
 async function deleteOrder(id){if(!confirm('Diesen Auftrag wirklich löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;const {error}=await db.from('vermittlung_auftraege').delete().eq('id',id);if(error){alert('Auftrag konnte nicht gelöscht werden: '+error.message);return}toast('Auftrag gelöscht');navigate('orders')}
-function renderCustomers(){const rows=customers.map(c=>`<tr><td>${esc((c.vorname||'')+' '+(c.nachname||''))}</td><td>${esc(c.firma||'')}</td><td>${esc(c.telefon||'')}</td><td>${esc(c.email||'')}</td><td>${esc((c.strasse||'')+' '+(c.plz||'')+' '+(c.ort||''))}</td><td><button class="delete-btn" onclick="deleteCustomer('${c.id}')">Löschen</button></td></tr>`).join('');$('#main').innerHTML=page('Kunden',`<div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Firma</th><th>Telefon</th><th>E-Mail</th><th>Adresse</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5">Noch keine Kunden.</td></tr>'}</tbody></table></div>`)}
-function renderCompanies(){const rows=companies.map(c=>`<tr><td>${esc(c.firmenname)}</td><td>${esc(c.ansprechpartner||'')}</td><td>${esc(c.gewerk||'')}</td><td>${esc(c.telefon||'')}</td><td>${esc(c.email||'')}</td><td><button class="delete-btn" onclick="deleteCompany('${c.id}')">Löschen</button></td></tr>`).join('');$('#main').innerHTML=page('Firmen / Subunternehmer',`<div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Ansprechpartner</th><th>Gewerk</th><th>Telefon</th><th>E-Mail</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5">Noch keine Firmen.</td></tr>'}</tbody></table></div>`)}
-function renderCommissions(){const active=orders.filter(o=>o.status!=='Storniert');const rows=active.map(o=>`<tr><td>${esc(o.auftragsnummer)}</td><td>${esc(o.bereich)}</td><td>${money(o.auftragswert_netto)}</td><td>${money(o.provision)}</td><td>${o.provision_abgerechnet?'Ja':'Nein'}</td><td>${o.provision_bezahlt?'Ja':'Nein'}</td></tr>`).join('');$('#main').innerHTML=page('Provisionen',`<div class="table-wrap"><table class="table"><thead><tr><th>Auftrag</th><th>Bereich</th><th>Auftragswert</th><th>Provision 10 %</th><th>Abgerechnet</th><th>Bezahlt</th></tr></thead><tbody>${rows||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>`)}
+function renderCustomers(){
+  const rows=customers.map(c=>`<tr><td>${esc((c.vorname||'')+' '+(c.nachname||''))}</td><td>${esc(c.firma||'')}</td><td>${esc(c.telefon||'')}</td><td>${esc(c.email||'')}</td><td>${esc((c.strasse||'')+' '+(c.plz||'')+' '+(c.ort||''))}</td><td><button class="delete-btn" onclick="deleteCustomer('${c.id}')">Löschen</button></td></tr>`).join('');
+  $('#main').innerHTML=page('Kunden',`<div class="toolbar"><input id="customerSearch" placeholder="Kunden suchen…" oninput="filterCustomers()"><button class="primary" onclick="newCustomer()">+ Neuer Kunde</button></div><div id="customersTable"><div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Firma</th><th>Telefon</th><th>E-Mail</th><th>Adresse</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6">Noch keine Kunden.</td></tr>'}</tbody></table></div></div>`)
+}
+function filterCustomers(){
+  const q=($('#customerSearch')?.value||'').toLowerCase();
+  const list=customers.filter(c=>JSON.stringify(c).toLowerCase().includes(q));
+  const rows=list.map(c=>`<tr><td>${esc((c.vorname||'')+' '+(c.nachname||''))}</td><td>${esc(c.firma||'')}</td><td>${esc(c.telefon||'')}</td><td>${esc(c.email||'')}</td><td>${esc((c.strasse||'')+' '+(c.plz||'')+' '+(c.ort||''))}</td><td><button class="delete-btn" onclick="deleteCustomer('${c.id}')">Löschen</button></td></tr>`).join('');
+  $('#customersTable').innerHTML=`<div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Firma</th><th>Telefon</th><th>E-Mail</th><th>Adresse</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6">Keine Treffer.</td></tr>'}</tbody></table></div>`;
+}
+function newCustomer(){
+  const m=modal(`<h2>Neuer Kunde</h2><form id="customerForm" class="form-grid">
+    <label>Vorname<input name="vorname" required></label>
+    <label>Nachname<input name="nachname" required></label>
+    <label>Firma<input name="firma"></label>
+    <label>Telefon<input name="telefon"></label>
+    <label>E-Mail<input name="email" type="email"></label>
+    <label class="full">Straße<input name="strasse"></label>
+    <label>PLZ<input name="plz"></label>
+    <label>Ort<input name="ort"></label>
+    <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Kunde speichern</button></div>
+  </form>`);
+  m.querySelector('form').onsubmit=async e=>{
+    e.preventDefault();
+    const d=Object.fromEntries(new FormData(e.target).entries());
+    d.created_by=currentUser?.email||null;
+    const {error}=await db.from('vermittlung_kunden').insert(d);
+    if(error){alert('Kunde konnte nicht gespeichert werden: '+error.message);return}
+    m.remove();toast('Kunde gespeichert');navigate('customers');
+  };
+}
+function renderCompanies(){
+  const rows=companies.map(c=>`<tr><td>${esc(c.firmenname)}</td><td>${esc(c.ansprechpartner||'')}</td><td>${esc(c.gewerk||'')}</td><td>${esc(c.telefon||'')}</td><td>${esc(c.email||'')}</td><td><button class="delete-btn" onclick="deleteCompany('${c.id}')">Löschen</button></td></tr>`).join('');
+  $('#main').innerHTML=page('Firmen / Subunternehmer',`<div class="toolbar"><input id="companySearch" placeholder="Firmen suchen…" oninput="filterCompanies()"><button class="primary" onclick="newCompany()">+ Neue Firma</button></div><div id="companiesTable"><div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Ansprechpartner</th><th>Gewerk</th><th>Telefon</th><th>E-Mail</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6">Noch keine Firmen.</td></tr>'}</tbody></table></div></div>`)
+}
+function filterCompanies(){
+  const q=($('#companySearch')?.value||'').toLowerCase();
+  const list=companies.filter(c=>JSON.stringify(c).toLowerCase().includes(q));
+  const rows=list.map(c=>`<tr><td>${esc(c.firmenname)}</td><td>${esc(c.ansprechpartner||'')}</td><td>${esc(c.gewerk||'')}</td><td>${esc(c.telefon||'')}</td><td>${esc(c.email||'')}</td><td><button class="delete-btn" onclick="deleteCompany('${c.id}')">Löschen</button></td></tr>`).join('');
+  $('#companiesTable').innerHTML=`<div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Ansprechpartner</th><th>Gewerk</th><th>Telefon</th><th>E-Mail</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6">Keine Treffer.</td></tr>'}</tbody></table></div>`;
+}
+function newCompany(){
+  const m=modal(`<h2>Neue Firma / Subunternehmer</h2><form id="companyForm" class="form-grid">
+    <label>Firmenname<input name="firmenname" required></label>
+    <label>Ansprechpartner<input name="ansprechpartner"></label>
+    <label>Gewerk<select name="gewerk">
+      <option>Reinigung</option><option>Wasserschaden / Sanierung</option><option>Gartenarbeiten</option><option>Immobilien / Vermietung</option><option>Sonstige</option>
+    </select></label>
+    <label>Telefon<input name="telefon"></label>
+    <label>E-Mail<input name="email" type="email"></label>
+    <label class="full">Straße<input name="strasse"></label>
+    <label>PLZ<input name="plz"></label>
+    <label>Ort<input name="ort"></label>
+    <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Firma speichern</button></div>
+  </form>`);
+  m.querySelector('form').onsubmit=async e=>{
+    e.preventDefault();
+    const d=Object.fromEntries(new FormData(e.target).entries());
+    d.created_by=currentUser?.email||null;
+    const {error}=await db.from('vermittlung_firmen').insert(d);
+    if(error){alert('Firma konnte nicht gespeichert werden: '+error.message);return}
+    m.remove();toast('Firma gespeichert');navigate('companies');
+  };
+}
+function renderCommissions(){
+  const active=orders.filter(o=>o.status!=='Storniert');
+  const groups={};
+  active.forEach(o=>{
+    const gewerk=o.bereich||'Sonstige Vermittlung';
+    if(!groups[gewerk])groups[gewerk]={count:0,vol:0,prov:0,paid:0};
+    groups[gewerk].count++;
+    groups[gewerk].vol+=Number(o.auftragswert_netto||0);
+    groups[gewerk].prov+=Number(o.provision||0);
+    if(o.provision_bezahlt)groups[gewerk].paid+=Number(o.provision||0);
+  });
+  const total=active.reduce((s,o)=>s+Number(o.provision||0),0);
+  const paid=active.filter(o=>o.provision_bezahlt).reduce((s,o)=>s+Number(o.provision||0),0);
+  const summary=Object.entries(groups).sort((a,b)=>b[1].prov-a[1].prov).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('');
+  const rows=active.map(o=>`<tr><td>${esc(o.auftragsnummer)}</td><td>${esc(o.bereich)}</td><td>${money(o.auftragswert_netto)}</td><td>${money(o.provision)}</td><td>${o.provision_abgerechnet?'Ja':'Nein'}</td><td>${o.provision_bezahlt?'Ja':'Nein'}</td></tr>`).join('');
+  $('#main').innerHTML=page('Provisionen',`
+    <div class="dashboard-cards">
+      <div class="dash-card blue"><span>Provision gesamt</span><strong>${money(total)}</strong><small>10 % aller aktiven Aufträge</small></div>
+      <div class="dash-card green"><span>Provision bezahlt</span><strong>${money(paid)}</strong><small>bereits eingegangen</small></div>
+      <div class="dash-card orange"><span>Provision offen</span><strong>${money(total-paid)}</strong><small>noch nicht bezahlt</small></div>
+    </div>
+    <div class="panel" style="margin-top:18px">
+      <div class="panel-title-row"><div><span class="eyebrow">GEWERKE</span><h3>Provision nach Gewerk</h3></div><span class="badge status">10 % je Gewerk</span></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Gewerk</th><th>Aufträge</th><th>Auftragsvolumen</th><th>Provision 10 %</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${summary||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>
+    </div>
+    <div class="panel" style="margin-top:18px">
+      <h3>Einzelne Provisionen</h3>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Auftrag</th><th>Bereich</th><th>Auftragswert</th><th>Provision 10 %</th><th>Abgerechnet</th><th>Bezahlt</th></tr></thead><tbody>${rows||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>
+    </div>`)
+}
 function renderReports(){const active=orders.filter(o=>o.status!=='Storniert');const months={};const years={};active.forEach(o=>{const d=new Date(o.erstellt_am);const m=d.toLocaleDateString('de-DE',{month:'2-digit',year:'numeric'});const y=d.getFullYear();for(const [obj,key] of [[months,m],[years,y]]){obj[key]??={count:0,vol:0,prov:0,paid:0};obj[key].count++;obj[key].vol+=Number(o.auftragswert_netto||0);obj[key].prov+=Number(o.provision||0);if(o.provision_bezahlt)obj[key].paid+=Number(o.provision||0)}});const table=(obj)=>`<div class="table-wrap"><table class="table"><thead><tr><th>Zeitraum</th><th>Aufträge</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${Object.entries(obj).sort().reverse().map(([k,v])=>`<tr><td>${k}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('')||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>`;$('#main').innerHTML=page('Monats- / Jahresabrechnung',`<h3>Monat</h3>${table(months)}<h3 style="margin-top:25px">Jahr</h3>${table(years)}`)}
 function modal(content){const el=document.createElement('div');el.className='modal show';el.innerHTML=`<div class="modal-card">${content}</div>`;document.body.appendChild(el);return el}
-function newOrder(){const m=modal(`<h2>Neuer Auftrag</h2><form id="orderForm" class="form-grid"><label>Bereich<select name="bereich"><option>Wasserschaden / Sanierung</option><option>Reinigungsvermittlung</option><option>Gartenvermittlung</option><option>Immobilien / Vermietung</option><option>Sonstige Vermittlung</option></select></label><label>Priorität<select name="prioritaet"><option>Normal</option><option>Dringend</option></select></label><label>Status<select name="status">${['Neue Anfrage','In Prüfung','Kostenvoranschlag angefordert','Kostenvoranschlag erhalten','Angebot beim Kunden','Auftrag erteilt','In Ausführung','Abgeschlossen','Provision offen','Abgerechnet','Storniert'].map(x=>`<option>${x}</option>`).join('')}</select></label><label>Verantwortlich<input name="verantwortlich"></label><label>Kunde<select name="kunde_id"><option value="">— neuer / noch nicht zugeordnet —</option>${customers.map(c=>`<option value="${c.id}">${esc((c.vorname||'')+' '+(c.nachname||'')+(c.firma?' – '+c.firma:''))}</option>`).join('')}</select></label><label>Ausführende Firma<select name="ausfuehrende_firma_id"><option value="">— noch nicht zugeordnet —</option>${companies.map(c=>`<option value="${c.id}">${esc(c.firmenname)}</option>`).join('')}</select></label><label class="full">Objektadresse<input name="objekt_adresse"></label><label>Objekttyp<select name="objekt_typ"><option>Wohnung</option><option>Einfamilienhaus</option><option>Mehrfamilienhaus</option><option>Gewerbe</option><option>Sonstiges</option></select></label><label>Geplanter Beginn<input type="date" name="geplanter_beginn"></label><label class="full">Beschreibung<textarea name="beschreibung"></textarea></label><label>Kostenvoranschlag netto<input type="number" step="0.01" name="kostenvoranschlag_netto" value="0"></label><label>Kostenvoranschlag brutto<input type="number" step="0.01" name="kostenvoranschlag_brutto" value="0"></label><label>Auftragswert netto<input type="number" step="0.01" name="auftragswert_netto" value="0"></label><label>Schadensart (bei Wasserschaden)<input name="schadensart"></label><label>Schadensort<input name="schadensort"></label><label>Versicherung<select name="versicherung"><option value="">unbekannt</option><option value="true">Ja</option><option value="false">Nein</option></select></label><label>Schadennummer<input name="schadennummer"></label><label>Versicherungsgesellschaft<input name="versicherungsgesellschaft"></label><label>Notizen<textarea name="notizen"></textarea></label><div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Auftrag speichern</button></div></form>`);m.querySelector('form').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);const d=Object.fromEntries(fd.entries());for(const k of ['kunde_id','ausfuehrende_firma_id'])if(!d[k])d[k]=null;for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto'])d[k]=Number(d[k]||0);d.versicherung=d.versicherung===''?null:d.versicherung==='true';d.created_by=currentUser.email;const {error}=await db.from('vermittlung_auftraege').insert(d);if(error){alert(error.message);return}m.remove();toast('Auftrag gespeichert');navigate('orders')}}
+function newOrder(){const m=modal(`<h2>Neuer Auftrag</h2><form id="orderForm" class="form-grid"><label>Bereich<select name="bereich"><option>Wasserschaden / Sanierung</option><option>Reinigung</option><option>Gartenarbeiten</option><option>Immobilien / Vermietung</option><option>Sonstige Vermittlung</option></select></label><label>Priorität<select name="prioritaet"><option>Normal</option><option>Dringend</option></select></label><label>Status<select name="status">${['Neue Anfrage','In Prüfung','Kostenvoranschlag angefordert','Kostenvoranschlag erhalten','Angebot beim Kunden','Auftrag erteilt','In Ausführung','Abgeschlossen','Provision offen','Abgerechnet','Storniert'].map(x=>`<option>${x}</option>`).join('')}</select></label><label>Verantwortlich<input name="verantwortlich"></label><label>Kunde<select name="kunde_id"><option value="">— neuer / noch nicht zugeordnet —</option>${customers.map(c=>`<option value="${c.id}">${esc((c.vorname||'')+' '+(c.nachname||'')+(c.firma?' – '+c.firma:''))}</option>`).join('')}</select></label><label>Ausführende Firma<select name="ausfuehrende_firma_id"><option value="">— noch nicht zugeordnet —</option>${companies.map(c=>`<option value="${c.id}">${esc(c.firmenname)}</option>`).join('')}</select></label><label class="full">Objektadresse<input name="objekt_adresse"></label><label>Objekttyp<select name="objekt_typ"><option>Wohnung</option><option>Einfamilienhaus</option><option>Mehrfamilienhaus</option><option>Gewerbe</option><option>Sonstiges</option></select></label><label>Geplanter Beginn<input type="date" name="geplanter_beginn"></label><label class="full">Beschreibung<textarea name="beschreibung"></textarea></label><label>Kostenvoranschlag netto<input type="number" step="0.01" name="kostenvoranschlag_netto" value="0"></label><label>Kostenvoranschlag brutto<input type="number" step="0.01" name="kostenvoranschlag_brutto" value="0"></label><label>Auftragswert netto<input type="number" step="0.01" name="auftragswert_netto" value="0"></label><label>Schadensart (bei Wasserschaden)<input name="schadensart"></label><label>Schadensort<input name="schadensort"></label><label>Versicherung<select name="versicherung"><option value="">unbekannt</option><option value="true">Ja</option><option value="false">Nein</option></select></label><label>Schadennummer<input name="schadennummer"></label><label>Versicherungsgesellschaft<input name="versicherungsgesellschaft"></label><label>Notizen<textarea name="notizen"></textarea></label><div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Auftrag speichern</button></div></form>`);m.querySelector('form').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);const d=Object.fromEntries(fd.entries());for(const k of ['kunde_id','ausfuehrende_firma_id'])if(!d[k])d[k]=null;for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto'])d[k]=Number(d[k]||0);d.versicherung=d.versicherung===''?null:d.versicherung==='true';d.provision=Number(d.auftragswert_netto||0)*0.10;d.created_by=currentUser.email;const {error}=await db.from('vermittlung_auftraege').insert(d);if(error){alert(error.message);return}m.remove();toast('Auftrag gespeichert');navigate('orders')}}
 async function showOrder(id){
   const o=orders.find(x=>x.id===id);
   if(!o)return;
@@ -313,4 +404,3 @@ async function showOrder(id){
     m.remove();toast('Verlauf gespeichert');showOrder(id);
   };
 }
-
