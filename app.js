@@ -112,7 +112,6 @@ function newCustomer(){
   m.querySelector('form').onsubmit=async e=>{
     e.preventDefault();
     const d=Object.fromEntries(new FormData(e.target).entries());
-    d.created_by=currentUser?.email||null;
     const {error}=await db.from('vermittlung_kunden').insert(d);
     if(error){alert('Kunde konnte nicht gespeichert werden: '+error.message);return}
     m.remove();toast('Kunde gespeichert');navigate('customers');
@@ -145,7 +144,6 @@ function newCompany(){
   m.querySelector('form').onsubmit=async e=>{
     e.preventDefault();
     const d=Object.fromEntries(new FormData(e.target).entries());
-    d.created_by=currentUser?.email||null;
     const {error}=await db.from('vermittlung_firmen').insert(d);
     if(error){alert('Firma konnte nicht gespeichert werden: '+error.message);return}
     m.remove();toast('Firma gespeichert');navigate('companies');
