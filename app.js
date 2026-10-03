@@ -6,13 +6,69 @@ let currentUser=null, customers=[], companies=[], orders=[];
 
 document.addEventListener('DOMContentLoaded', async ()=>{
   $('#loginForm').addEventListener('submit', login);
-  $('#logoutBtn').addEventListener('click', async()=>{await db.auth.signOut();});
+  $('#logoutBtn').addEventListener('click', ()=>{
+    localStorage.removeItem('vermittlung_app_user');
+    currentUser=null;
+    renderAuth();
+  });
   document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
-  db.auth.onAuthStateChange((_e,s)=>{currentUser=s?.user||null; renderAuth();});
-  const {data}=await db.auth.getSession(); currentUser=data.session?.user||null; renderAuth();
+
+  const saved=localStorage.getItem('vermittlung_app_user');
+  if(saved){
+    try{ currentUser=JSON.parse(saved); }
+    catch{ localStorage.removeItem('vermittlung_app_user'); currentUser=null; }
+  }
+  renderAuth();
 });
-async function login(e){e.preventDefault();$('#loginMsg').textContent='';const {error}=await db.auth.signInWithPassword({email:$('#email').value,password:$('#password').value});if(error)$('#loginMsg').textContent=error.message;}
-function renderAuth(){if(currentUser){$('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');$('#userName').textContent=currentUser.email||'';navigate(localStorage.getItem('vermittlung_current_page')||'dashboard');}else{$('#appView').classList.add('hidden');$('#loginView').classList.remove('hidden');}}
+
+async function login(e){
+  e.preventDefault();
+  $('#loginMsg').textContent='';
+  const email=$('#email').value.trim();
+  const password=$('#password').value;
+
+  if(!email||!password){
+    $('#loginMsg').textContent='Bitte E-Mail und Passwort eingeben.';
+    return;
+  }
+
+  const {data,error}=await db.rpc('vermittlung_login',{
+    p_email:email,
+    p_password:password
+  });
+
+  if(error){
+    $('#loginMsg').textContent='Anmeldung fehlgeschlagen: '+error.message;
+    return;
+  }
+
+  const user=Array.isArray(data)?data[0]:data;
+  if(!user){
+    $('#loginMsg').textContent='E-Mail oder Passwort ist falsch.';
+    return;
+  }
+
+  currentUser={
+    id:user.id,
+    name:user.name,
+    email:user.email,
+    rolle:user.rolle
+  };
+  localStorage.setItem('vermittlung_app_user',JSON.stringify(currentUser));
+  renderAuth();
+}
+
+function renderAuth(){
+  if(currentUser){
+    $('#loginView').classList.add('hidden');
+    $('#appView').classList.remove('hidden');
+    $('#userName').textContent=currentUser.name||currentUser.email||'';
+    navigate(localStorage.getItem('vermittlung_current_page')||'dashboard');
+  }else{
+    $('#appView').classList.add('hidden');
+    $('#loginView').classList.remove('hidden');
+  }
+}
 async function loadBase(){const [c,f,o]=await Promise.all([db.from('vermittlung_kunden').select('*').order('nachname'),db.from('vermittlung_firmen').select('*').order('firmenname'),db.from('vermittlung_auftraege').select('*').order('erstellt_am',{ascending:false})]);customers=c.data||[];companies=f.data||[];orders=o.data||[];}
 const GOOGLE_SYNC_URL_KEY='vermittlung_google_sync_url';
 const GOOGLE_SYNC_TOKEN_KEY='vermittlung_google_sync_token';
@@ -153,7 +209,8 @@ function renderCommissions(){
   const active=orders.filter(o=>o.status!=='Storniert');
   const groups={};
   active.forEach(o=>{
-    const gewerkMap={'Reinigungsvermittlung':'Reinigung','Gartenvermittlung':'Gartenarbeiten'};const gewerk=gewerkMap[o.bereich]||o.bereich||'Sonstige Vermittlung';
+    const raw=o.bereich||'Sonstige Vermittlung';
+    const gewerk=({Reinigungsvermittlung:'Reinigung',Gartenvermittlung:'Gartenarbeiten'})[raw]||raw;
     if(!groups[gewerk])groups[gewerk]={count:0,vol:0,prov:0,paid:0};
     groups[gewerk].count++;
     groups[gewerk].vol+=Number(o.auftragswert_netto||0);
