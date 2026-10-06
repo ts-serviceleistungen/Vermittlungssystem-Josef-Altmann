@@ -254,9 +254,27 @@ function renderCommissions(){
       <div class="table-wrap"><table class="table"><thead><tr><th>Gewerk</th><th>Aufträge</th><th>Auftragsvolumen</th><th>Provision 10 %</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${summary||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>
     </div>
     <div class="panel" style="margin-top:18px">
+      <div class="panel-title-row"><div><span class="eyebrow">FIRMEN / SUBUNTERNEHMER</span><h3>Provisionen je Firma</h3></div><button class="secondary" onclick="navigate('companies')">Firmen verwalten →</button></div>
+      <p class="muted">Hier siehst du für jede angelegte Firma die von uns verdiente Vermittlungsprovision. Neue Firmen erscheinen automatisch in dieser Liste.</p>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Aufträge</th><th>Auftragsvolumen</th><th>Provision für uns</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${renderCompanyCommissionRows(active)||'<tr><td colspan="6">Noch keine Firmen angelegt.</td></tr>'}</tbody></table></div>
+    </div>
+    <div class="panel" style="margin-top:18px">
       <h3>Einzelne Provisionen</h3>
       <div class="table-wrap"><table class="table"><thead><tr><th>Auftrag</th><th>Bereich</th><th>Auftragswert</th><th>Provision 10 %</th><th>Abgerechnet</th><th>Bezahlt</th></tr></thead><tbody>${rows||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>
-    </div>`)
+    </div>`)}
+function renderCompanyCommissionRows(active){
+  const byCompany=new Map(companies.map(c=>[c.id,{name:c.firmenname||'Unbenannte Firma',count:0,vol:0,prov:0,paid:0}]));
+  const unassigned={name:'Nicht zugeordnet',count:0,vol:0,prov:0,paid:0};
+  active.forEach(o=>{
+    const value=Number(o.auftragswert_netto||0);
+    const prov=Number(o.provision||0);
+    const row=o.ausfuehrende_firma_id&&byCompany.has(o.ausfuehrende_firma_id) ? byCompany.get(o.ausfuehrende_firma_id) : unassigned;
+    row.count++; row.vol+=value; row.prov+=prov;
+    if(o.provision_bezahlt) row.paid+=prov;
+  });
+  const rows=[...byCompany.values()].sort((a,b)=>b.prov-a.prov||a.name.localeCompare(b.name,'de'));
+  if(unassigned.count) rows.push(unassigned);
+  return rows.map(v=>`<tr><td><strong>${esc(v.name)}</strong></td><td>${v.count}</td><td>${money(v.vol)}</td><td><strong>${money(v.prov)}</strong></td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('');
 }
 function renderReports(){const active=orders.filter(o=>o.status!=='Storniert');const months={};const years={};active.forEach(o=>{const d=new Date(o.erstellt_am);const m=d.toLocaleDateString('de-DE',{month:'2-digit',year:'numeric'});const y=d.getFullYear();for(const [obj,key] of [[months,m],[years,y]]){obj[key]??={count:0,vol:0,prov:0,paid:0};obj[key].count++;obj[key].vol+=Number(o.auftragswert_netto||0);obj[key].prov+=Number(o.provision||0);if(o.provision_bezahlt)obj[key].paid+=Number(o.provision||0)}});const table=(obj)=>`<div class="table-wrap"><table class="table"><thead><tr><th>Zeitraum</th><th>Aufträge</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${Object.entries(obj).sort().reverse().map(([k,v])=>`<tr><td>${k}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('')||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>`;$('#main').innerHTML=page('Monats- / Jahresabrechnung',`<h3>Monat</h3>${table(months)}<h3 style="margin-top:25px">Jahr</h3>${table(years)}`)}
 function modal(content){const el=document.createElement('div');el.className='modal show';el.innerHTML=`<div class="modal-card">${content}</div>`;document.body.appendChild(el);return el}
