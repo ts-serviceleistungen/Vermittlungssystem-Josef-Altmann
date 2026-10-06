@@ -3,6 +3,18 @@ const $ = s => document.querySelector(s);
 const money = n => new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Number(n||0));
 const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 let currentUser=null, customers=[], companies=[], orders=[];
+const ADMIN_ROLE='Administrator';
+const ENTRY_ROLE='Auftragserfassung';
+function isAdmin(){return currentUser?.rolle===ADMIN_ROLE;}
+function isEntryUser(){return currentUser?.rolle===ENTRY_ROLE;}
+function canPage(page){return isAdmin() || (isEntryUser() && page==='order-entry');}
+function applyRoleUI(){
+  document.querySelectorAll('.admin-only').forEach(b=>b.classList.toggle('hidden',!isAdmin()));
+  document.querySelectorAll('.nav').forEach(b=>{
+    const allowed=isAdmin() || (isEntryUser() && b.dataset.page==='order-entry');
+    b.classList.toggle('hidden',!allowed);
+  });
+}
 
 document.addEventListener('DOMContentLoaded', async ()=>{
   $('#loginForm').addEventListener('submit', login);
@@ -62,8 +74,10 @@ function renderAuth(){
   if(currentUser){
     $('#loginView').classList.add('hidden');
     $('#appView').classList.remove('hidden');
-    $('#userName').textContent=currentUser.name||currentUser.email||'';
-    navigate(localStorage.getItem('vermittlung_current_page')||'dashboard');
+    $('#userName').textContent=(currentUser.name||currentUser.email||'') + (currentUser.rolle ? ' · '+currentUser.rolle : '');
+    applyRoleUI();
+    const savedPage=localStorage.getItem('vermittlung_current_page')||'dashboard';
+    navigate(isEntryUser() ? 'order-entry' : (canPage(savedPage)?savedPage:'dashboard'));
   }else{
     $('#appView').classList.add('hidden');
     $('#loginView').classList.remove('hidden');
@@ -121,7 +135,15 @@ async function syncGoogle(){
   }catch(e){alert('Google-Synchronisierung konnte nicht gestartet werden: '+e.message)}
 }
 
-async function navigate(page){localStorage.setItem('vermittlung_current_page',page);document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===page));await loadBase();({dashboard:renderDashboard,orders:renderOrders,customers:renderCustomers,companies:renderCompanies,commissions:renderCommissions,reports:renderReports,google:renderGoogle}[page]||renderDashboard)();}
+async function navigate(page){
+  if(isEntryUser()) page='order-entry';
+  if(!isAdmin() && page!=='order-entry') page='order-entry';
+  localStorage.setItem('vermittlung_current_page',page);
+  document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
+  if(isEntryUser()){renderOrderEntry();return;}
+  await loadBase();
+  ({dashboard:renderDashboard,orders:renderOrders,customers:renderCustomers,companies:renderCompanies,commissions:renderCommissions,reports:renderReports,google:renderGoogle,settings:renderSettings}[page]||renderDashboard)();
+}
 function page(title,body,actions=''){return `<div class="page"><div class="page-head"><h2>${title}</h2><div>${actions}</div></div>${body}</div>`}
 function renderDashboard(){
 const active=orders.filter(o=>o.status!=='Storniert'),open=orders.filter(o=>!['Abgeschlossen','Abgerechnet','Storniert'].includes(o.status));
@@ -238,6 +260,81 @@ function renderCommissions(){
 }
 function renderReports(){const active=orders.filter(o=>o.status!=='Storniert');const months={};const years={};active.forEach(o=>{const d=new Date(o.erstellt_am);const m=d.toLocaleDateString('de-DE',{month:'2-digit',year:'numeric'});const y=d.getFullYear();for(const [obj,key] of [[months,m],[years,y]]){obj[key]??={count:0,vol:0,prov:0,paid:0};obj[key].count++;obj[key].vol+=Number(o.auftragswert_netto||0);obj[key].prov+=Number(o.provision||0);if(o.provision_bezahlt)obj[key].paid+=Number(o.provision||0)}});const table=(obj)=>`<div class="table-wrap"><table class="table"><thead><tr><th>Zeitraum</th><th>Aufträge</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${Object.entries(obj).sort().reverse().map(([k,v])=>`<tr><td>${k}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('')||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>`;$('#main').innerHTML=page('Monats- / Jahresabrechnung',`<h3>Monat</h3>${table(months)}<h3 style="margin-top:25px">Jahr</h3>${table(years)}`)}
 function modal(content){const el=document.createElement('div');el.className='modal show';el.innerHTML=`<div class="modal-card">${content}</div>`;document.body.appendChild(el);return el}
+function renderOrderEntry(){
+  $('#main').innerHTML=page('Auftrag erfassen',`
+    <div class="panel">
+      <span class="eyebrow">AUFTRAGSERFASSUNG</span>
+      <h3>Neuen Auftrag anlegen</h3>
+      <p class="muted">Hier kannst du Aufträge erfassen. Andere Bereiche der Vermittlungsapp sind für diesen Benutzer nicht zugänglich.</p>
+      <form id="entryOrderForm" class="form-grid">
+        <label>Bereich<select name="bereich"><option>Wasserschaden / Sanierung</option><option>Reinigungsvermittlung</option><option>Gartenvermittlung</option><option>Immobilien / Vermietung</option><option>Sonstige Vermittlung</option></select></label>
+        <label>Priorität<select name="prioritaet"><option>Normal</option><option>Dringend</option></select></label>
+        <label class="full">Kunde / Ansprechpartner<input name="objekt_kontakt" required></label>
+        <label>Telefon<input name="objekt_kontakt_telefon"></label>
+        <label>E-Mail<input name="ansprechpartner"></label>
+        <label class="full">Objektadresse<input name="objekt_adresse"></label>
+        <label>Objekttyp<select name="objekt_typ"><option>Wohnung</option><option>Einfamilienhaus</option><option>Mehrfamilienhaus</option><option>Gewerbe</option><option>Sonstiges</option></select></label>
+        <label>Geplanter Beginn<input type="date" name="geplanter_beginn"></label>
+        <label class="full">Beschreibung<textarea name="beschreibung" required></textarea></label>
+        <label>Schadensart<input name="schadensart"></label>
+        <label>Schadensort<input name="schadensort"></label>
+        <label>Versicherung<select name="versicherung"><option value="">unbekannt</option><option value="true">Ja</option><option value="false">Nein</option></select></label>
+        <label>Schadennummer<input name="schadennummer"></label>
+        <label>Versicherungsgesellschaft<input name="versicherungsgesellschaft"></label>
+        <label class="full">Notizen<textarea name="notizen"></textarea></label>
+        <div class="full actions"><button class="primary">Auftrag speichern</button></div>
+      </form>
+      <div id="entryOrderMsg" class="message"></div>
+    </div>`);
+  $('#entryOrderForm').onsubmit=async e=>{
+    e.preventDefault();
+    const fd=new FormData(e.target), d=Object.fromEntries(fd.entries());
+    d.versicherung=d.versicherung===''?null:d.versicherung==='true';
+    const {data,error}=await db.rpc('vermittlung_create_order_entry',{p_user_email:currentUser.email,p_data:d});
+    if(error){$('#entryOrderMsg').textContent='Auftrag konnte nicht gespeichert werden: '+error.message;return;}
+    e.target.reset();
+    $('#entryOrderMsg').textContent='Auftrag wurde erfolgreich erfasst.';
+    toast('Auftrag gespeichert');
+  };
+}
+
+function renderSettings(){
+  if(!isAdmin()){navigate('dashboard');return;}
+  $('#main').innerHTML=page('Einstellungen',`
+    <div class="panel">
+      <div class="panel-title-row"><div><span class="eyebrow">BENUTZERVERWALTUNG</span><h3>Benutzer</h3></div><button class="primary" onclick="newAppUser()">+ Benutzer anlegen</button></div>
+      <p class="muted">Nur Administratoren können Benutzer anlegen, deaktivieren, löschen oder Passwörter ändern.</p>
+      <div id="usersTable"><p class="muted">Benutzer werden geladen…</p></div>
+    </div>`);
+  loadAppUsers();
+}
+async function loadAppUsers(){
+  const {data,error}=await db.rpc('vermittlung_admin_list_users',{p_actor_email:currentUser.email});
+  if(error){$('#usersTable').innerHTML='<p class="message">Benutzer konnten nicht geladen werden: '+esc(error.message)+'</p>';return;}
+  const rows=(data||[]).map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td><span class="badge status">${esc(u.rolle)}</span></td><td>${u.aktiv?'Aktiv':'Deaktiviert'}</td><td>${u.created_at?new Date(u.created_at).toLocaleDateString('de-DE'):'—'}</td><td><button class="secondary" onclick="editAppUser('${u.id}','${esc(u.name)}','${esc(u.email)}','${esc(u.rolle)}',${u.aktiv})">Bearbeiten</button> <button class="delete-btn" onclick="deleteAppUser('${u.id}')">Löschen</button></td></tr>`).join('');
+  $('#usersTable').innerHTML=`<div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>E-Mail</th><th>Rolle</th><th>Status</th><th>Angelegt</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6">Keine Benutzer vorhanden.</td></tr>'}</tbody></table></div>`;
+}
+function newAppUser(){
+  const m=modal(`<h2>Benutzer anlegen</h2><form id="appUserForm" class="form-grid">
+    <label>Name<input name="name" required></label><label>E-Mail<input name="email" type="email" required></label>
+    <label>Passwort<input name="password" type="password" minlength="8" required placeholder="mindestens 8 Zeichen"></label>
+    <label>Rolle<select name="rolle"><option value="Auftragserfassung">Auftragserfassung</option><option value="Administrator">Administrator</option></select></label>
+    <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Benutzer speichern</button></div>
+  </form>`);
+  m.querySelector('form').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await db.rpc('vermittlung_admin_create_user',{p_actor_email:currentUser.email,p_name:d.name,p_email:d.email,p_password:d.password,p_rolle:d.rolle});if(error){alert(error.message);return}m.remove();toast('Benutzer angelegt');loadAppUsers();};
+}
+function editAppUser(id,name,email,rolle,aktiv){
+  const m=modal(`<h2>Benutzer bearbeiten</h2><form id="editAppUserForm" class="form-grid">
+    <label>Name<input name="name" value="${esc(name)}" required></label><label>E-Mail<input name="email" type="email" value="${esc(email)}" required></label>
+    <label>Neue Rolle<select name="rolle"><option value="Auftragserfassung" ${rolle==='Auftragserfassung'?'selected':''}>Auftragserfassung</option><option value="Administrator" ${rolle==='Administrator'?'selected':''}>Administrator</option></select></label>
+    <label>Status<select name="aktiv"><option value="true" ${aktiv?'selected':''}>Aktiv</option><option value="false" ${!aktiv?'selected':''}>Deaktiviert</option></select></label>
+    <label class="full">Neues Passwort (leer lassen = unverändert)<input name="password" type="password" minlength="8"></label>
+    <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Änderungen speichern</button></div>
+  </form>`);
+  m.querySelector('form').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await db.rpc('vermittlung_admin_update_user',{p_actor_email:currentUser.email,p_user_id:id,p_name:d.name,p_email:d.email,p_password:d.password||null,p_rolle:d.rolle,p_aktiv:d.aktiv==='true'});if(error){alert(error.message);return}m.remove();toast('Benutzer geändert');loadAppUsers();};
+}
+async function deleteAppUser(id){if(!confirm('Diesen Benutzer wirklich löschen?'))return;const {error}=await db.rpc('vermittlung_admin_delete_user',{p_actor_email:currentUser.email,p_user_id:id});if(error){alert(error.message);return}toast('Benutzer gelöscht');loadAppUsers();}
+
 function newOrder(){const m=modal(`<h2>Neuer Auftrag</h2><form id="orderForm" class="form-grid"><label>Bereich<select name="bereich"><option>Wasserschaden / Sanierung</option><option>Reinigungsvermittlung</option><option>Gartenvermittlung</option><option>Immobilien / Vermietung</option><option>Sonstige Vermittlung</option></select></label><label>Priorität<select name="prioritaet"><option>Normal</option><option>Dringend</option></select></label><label>Status<select name="status">${['Neue Anfrage','In Prüfung','Kostenvoranschlag angefordert','Kostenvoranschlag erhalten','Angebot beim Kunden','Auftrag erteilt','In Ausführung','Abgeschlossen','Provision offen','Abgerechnet','Storniert'].map(x=>`<option>${x}</option>`).join('')}</select></label><label>Verantwortlich<input name="verantwortlich"></label><label>Kunde<select name="kunde_id"><option value="">— neuer / noch nicht zugeordnet —</option>${customers.map(c=>`<option value="${c.id}">${esc((c.vorname||'')+' '+(c.nachname||'')+(c.firma?' – '+c.firma:''))}</option>`).join('')}</select></label><label>Ausführende Firma<select name="ausfuehrende_firma_id"><option value="">— noch nicht zugeordnet —</option>${companies.map(c=>`<option value="${c.id}">${esc(c.firmenname)}</option>`).join('')}</select></label><label class="full">Objektadresse<input name="objekt_adresse"></label><label>Objekttyp<select name="objekt_typ"><option>Wohnung</option><option>Einfamilienhaus</option><option>Mehrfamilienhaus</option><option>Gewerbe</option><option>Sonstiges</option></select></label><label>Geplanter Beginn<input type="date" name="geplanter_beginn"></label><label class="full">Beschreibung<textarea name="beschreibung"></textarea></label><label>Kostenvoranschlag netto<input type="number" step="0.01" name="kostenvoranschlag_netto" value="0"></label><label>Kostenvoranschlag brutto<input type="number" step="0.01" name="kostenvoranschlag_brutto" value="0"></label><label>Auftragswert netto<input type="number" step="0.01" name="auftragswert_netto" value="0"></label><label>Schadensart (bei Wasserschaden)<input name="schadensart"></label><label>Schadensort<input name="schadensort"></label><label>Versicherung<select name="versicherung"><option value="">unbekannt</option><option value="true">Ja</option><option value="false">Nein</option></select></label><label>Schadennummer<input name="schadennummer"></label><label>Versicherungsgesellschaft<input name="versicherungsgesellschaft"></label><label>Notizen<textarea name="notizen"></textarea></label><div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Auftrag speichern</button></div></form>`);m.querySelector('form').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);const d=Object.fromEntries(fd.entries());for(const k of ['kunde_id','ausfuehrende_firma_id'])if(!d[k])d[k]=null;for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto'])d[k]=Number(d[k]||0);d.versicherung=d.versicherung===''?null:d.versicherung==='true';d.created_by=currentUser.email;const {error}=await db.from('vermittlung_auftraege').insert(d);if(error){alert(error.message);return}m.remove();toast('Auftrag gespeichert');navigate('orders')}}
 async function showOrder(id){
   const o=orders.find(x=>x.id===id);
