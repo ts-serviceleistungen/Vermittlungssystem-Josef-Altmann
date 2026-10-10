@@ -353,7 +353,54 @@ function editAppUser(id,name,email,rolle,aktiv){
 }
 async function deleteAppUser(id){if(!confirm('Diesen Benutzer wirklich löschen?'))return;const {error}=await db.rpc('vermittlung_admin_delete_user',{p_actor_email:currentUser.email,p_user_id:id});if(error){alert(error.message);return}toast('Benutzer gelöscht');loadAppUsers();}
 
-function newOrder(){const m=modal(`<h2>Neuer Auftrag</h2><form id="orderForm" class="form-grid"><label>Bereich<select name="bereich"><option>Wasserschaden / Sanierung</option><option>Reinigungsvermittlung</option><option>Gartenvermittlung</option><option>Immobilien / Vermietung</option><option>Sonstige Vermittlung</option></select></label><label>Priorität<select name="prioritaet"><option>Normal</option><option>Dringend</option></select></label><label>Status<select name="status">${['Neue Anfrage','In Prüfung','Kostenvoranschlag angefordert','Kostenvoranschlag erhalten','Angebot beim Kunden','Auftrag erteilt','In Ausführung','Abgeschlossen','Provision offen','Abgerechnet','Storniert'].map(x=>`<option>${x}</option>`).join('')}</select></label><label>Verantwortlich<input name="verantwortlich"></label><label>Kunde<select name="kunde_id"><option value="">— neuer / noch nicht zugeordnet —</option>${customers.map(c=>`<option value="${c.id}">${esc((c.vorname||'')+' '+(c.nachname||'')+(c.firma?' – '+c.firma:''))}</option>`).join('')}</select></label><label>Ausführende Firma<select name="ausfuehrende_firma_id"><option value="">— noch nicht zugeordnet —</option>${companies.map(c=>`<option value="${c.id}">${esc(c.firmenname)}</option>`).join('')}</select></label><label class="full">Objektadresse<input name="objekt_adresse"></label><label>Objekttyp<select name="objekt_typ"><option>Wohnung</option><option>Einfamilienhaus</option><option>Mehrfamilienhaus</option><option>Gewerbe</option><option>Sonstiges</option></select></label><label>Geplanter Beginn<input type="date" name="geplanter_beginn"></label><label class="full">Beschreibung<textarea name="beschreibung"></textarea></label><label>Kostenvoranschlag netto<input type="number" step="0.01" name="kostenvoranschlag_netto" value="0"></label><label>Kostenvoranschlag brutto<input type="number" step="0.01" name="kostenvoranschlag_brutto" value="0"></label><label>Auftragswert netto<input type="number" step="0.01" name="auftragswert_netto" value="0"></label><label>Schadensart (bei Wasserschaden)<input name="schadensart"></label><label>Schadensort<input name="schadensort"></label><label>Versicherung<select name="versicherung"><option value="">unbekannt</option><option value="true">Ja</option><option value="false">Nein</option></select></label><label>Schadennummer<input name="schadennummer"></label><label>Versicherungsgesellschaft<input name="versicherungsgesellschaft"></label><label>Notizen<textarea name="notizen"></textarea></label><div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Auftrag speichern</button></div></form>`);m.querySelector('form').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);const d=Object.fromEntries(fd.entries());for(const k of ['kunde_id','ausfuehrende_firma_id'])if(!d[k])d[k]=null;for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto'])d[k]=Number(d[k]||0);d.versicherung=d.versicherung===''?null:d.versicherung==='true';d.created_by=currentUser.email;const {error}=await db.from('vermittlung_auftraege').insert(d);if(error){alert(error.message);return}m.remove();toast('Auftrag gespeichert');navigate('orders')}}
+function newOrder(){
+  const m=modal(`<h2>Neuer Auftrag</h2><form id="orderForm" class="form-grid">
+  <label>Bereich<select name="bereich"><option>Wasserschaden / Sanierung</option><option>Reinigungsvermittlung</option><option>Gartenvermittlung</option><option>Immobilien / Vermietung</option><option>Sonstige Vermittlung</option></select></label>
+  <label>Priorität<select name="prioritaet"><option>Normal</option><option>Dringend</option></select></label>
+  <label>Status<select name="status">${['Neue Anfrage','In Prüfung','Kostenvoranschlag angefordert','Kostenvoranschlag erhalten','Angebot beim Kunden','Auftrag erteilt','In Ausführung','Abgeschlossen','Provision offen','Abgerechnet','Storniert'].map(x=>`<option>${x}</option>`).join('')}</select></label>
+  <label>Verantwortlich<input name="verantwortlich"></label>
+  <label>Kunde<select name="kunde_id"><option value="">— neuer / noch nicht zugeordnet —</option>${customers.map(c=>`<option value="${c.id}">${esc((c.vorname||'')+' '+(c.nachname||'')+(c.firma?' – '+c.firma:''))}</option>`).join('')}</select></label>
+  <label>Ausführende Firma<select name="ausfuehrende_firma_id"><option value="">— noch nicht zugeordnet —</option>${companies.map(c=>`<option value="${c.id}">${esc(c.firmenname)}</option>`).join('')}</select></label>
+  <label class="full">Objektadresse<input name="objekt_adresse"></label>
+  <label>Objekttyp<select name="objekt_typ"><option>Wohnung</option><option>Einfamilienhaus</option><option>Mehrfamilienhaus</option><option>Gewerbe</option><option>Sonstiges</option></select></label>
+  <label>Geplanter Beginn<input type="date" name="geplanter_beginn"></label>
+  <label class="full">Beschreibung<textarea name="beschreibung"></textarea></label>
+  <label>Kostenvoranschlag netto<input type="number" step="0.01" name="kostenvoranschlag_netto" value="0"></label>
+  <label>Kostenvoranschlag brutto<input type="number" step="0.01" name="kostenvoranschlag_brutto" value="0"></label>
+  <label>Auftragswert netto<input type="number" step="0.01" name="auftragswert_netto" value="0"></label>
+  <label>Schadensart (bei Wasserschaden)<input name="schadensart"></label><label>Schadensort<input name="schadensort"></label>
+  <label>Versicherung<select name="versicherung"><option value="">unbekannt</option><option value="true">Ja</option><option value="false">Nein</option></select></label>
+  <label>Schadennummer<input name="schadennummer"></label><label>Versicherungsgesellschaft<input name="versicherungsgesellschaft"></label><label>Notizen<textarea name="notizen"></textarea></label>
+  <div class="full panel"><h3>Dokumente direkt hochladen</h3><p class="muted">PDF, JPG, PNG, WebP, Word und Excel. Maximal 50 MB je Datei.</p><input id="orderFiles" name="orderFiles" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,application/pdf,image/jpeg,image/png,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"><p id="orderFilesInfo" class="muted">Noch keine Dateien ausgewählt.</p></div>
+  <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary" id="saveOrderBtn">Auftrag speichern</button></div><p id="orderUploadMsg" class="full muted"></p></form>`);
+  const fileInput=m.querySelector('#orderFiles');
+  fileInput.addEventListener('change',()=>{const fs=[...fileInput.files];m.querySelector('#orderFilesInfo').textContent=fs.length?fs.map(f=>`${f.name} (${(f.size/1024/1024).toFixed(2)} MB)`).join(' · '):'Noch keine Dateien ausgewählt.';});
+  m.querySelector('#orderForm').onsubmit=async e=>{
+    e.preventDefault();
+    const btn=m.querySelector('#saveOrderBtn'), msg=m.querySelector('#orderUploadMsg');
+    const files=[...fileInput.files];
+    const max=50*1024*1024;
+    if(files.some(f=>f.size>max)){alert('Mindestens eine Datei ist größer als 50 MB. Bitte kleinere Dateien auswählen.');return;}
+    btn.disabled=true; msg.textContent='Auftrag wird gespeichert …';
+    const fd=new FormData(e.target), d=Object.fromEntries([...fd.entries()].filter(([k])=>k!=='orderFiles'));
+    for(const k of ['kunde_id','ausfuehrende_firma_id'])if(!d[k])d[k]=null;
+    for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto'])d[k]=Number(d[k]||0);
+    d.versicherung=d.versicherung===''?null:d.versicherung==='true'; d.created_by=currentUser.email;
+    const {data:created,error}=await db.from('vermittlung_auftraege').insert(d).select('id').single();
+    if(error){btn.disabled=false;msg.textContent='Auftrag konnte nicht gespeichert werden: '+error.message;return;}
+    let failed=[];
+    for(let i=0;i<files.length;i++){
+      const file=files[i]; msg.textContent=`Dokument ${i+1} von ${files.length} wird hochgeladen: ${file.name}`;
+      const uploadForm=new FormData(); uploadForm.append('actor_email',currentUser.email); uploadForm.append('order_id',created.id); uploadForm.append('file',file,file.name);
+      const {data:uploadData,error:uploadError}=await db.functions.invoke('upload-order-document',{body:uploadForm});
+      if(uploadError||!uploadData?.ok)failed.push(`${file.name}: ${uploadData?.error||uploadError?.message||'Upload fehlgeschlagen'}`);
+    }
+    m.remove();
+    if(failed.length)alert('Der Auftrag wurde gespeichert, aber einige Dateien konnten nicht hochgeladen werden:\n\n'+failed.join('\n'));
+    else toast(files.length?`Auftrag und ${files.length} Dokument(e) gespeichert`:'Auftrag gespeichert');
+    navigate('orders');
+  };
+}
 
 const ORDER_MAIL_FROM='auftragsservice@josef-altmann.de';
 const ORDER_MAIL_CC='auftragsservice@josef-altmann.de';
@@ -394,7 +441,7 @@ async function openOrderEmail(orderId){
   const o=orders.find(x=>String(x.id)===String(orderId));
   if(!o)return;
   const eligible=companies.filter(c=>String(c.email||'').includes('@'));
-  const relatedDocs=await db.from('vermittlung_dokumente').select('*').eq('auftrag_id',orderId).order('erstellt_am',{ascending:false});
+  const relatedDocs=await db.from('vermittlung_auftragsdokumente').select('id,dateiname,mime_type,dateigroesse').eq('auftrag_id',orderId).order('erstellt_am',{ascending:false});
   const subject=`Neue Auftragsanfrage – ${o.bereich||'Auftrag'} – ${o.auftragsnummer||orderId}`;
   const m=modal(`<div class="page-head"><div><h2>Auftrag versenden</h2><p class="muted">Empfänger auswählen und Nachricht vor dem Versand prüfen.</p></div><button type="button" class="close" onclick="this.closest('.modal').remove()">Schließen</button></div>
   <form id="orderEmailForm" class="form-grid">
@@ -403,7 +450,7 @@ async function openOrderEmail(orderId){
     <label class="full">Betreff<input name="subject" value="${esc(subject)}" required></label>
     <label class="full">E-Mail-Text<textarea name="body" rows="18" required>${esc(orderMailText(o))}</textarea></label>
     <div class="full panel"><strong>Absender:</strong> ${ORDER_MAIL_FROM}<br><strong>CC:</strong> ${ORDER_MAIL_CC}
-    <p class="muted">Verknüpfte Dokumente: ${(relatedDocs.data||[]).length}. Aktuell werden Dokumentnamen und Links nicht automatisch als Anhänge übertragen; vorhandene Google-Drive-Links können in den E-Mail-Text ergänzt werden.</p></div>
+    <h3>Dokumente als E-Mail-Anhänge</h3>${(relatedDocs.data||[]).length?(relatedDocs.data||[]).map(d=>`<label class="check-row"><input type="checkbox" name="attachments" value="${esc(d.id)}" checked> ${esc(d.dateiname)} <span class="muted">(${(Number(d.dateigroesse||0)/1024/1024).toFixed(2)} MB)</span></label>`).join(''):'<p class="muted">Für diesen Auftrag wurden noch keine Dateien hochgeladen.</p>'}<p class="muted">Ausgewählte Dateien werden als echte Anhänge mitgesendet.</p></div>
     <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary" ${eligible.length?'':'disabled'}>Jetzt versenden</button></div>
     <p id="orderEmailMsg" class="full muted"></p>
   </form>`);
@@ -415,7 +462,8 @@ async function openOrderEmail(orderId){
     const recipients=eligible.filter(c=>recipientIds.includes(String(c.id))).map(c=>({company_id:c.id,name:c.firmenname,email:c.email}));
     if(!confirm(`Auftrag an ${recipients.length} Firma/Firmen versenden? Eine Kopie geht an ${ORDER_MAIL_CC}.`))return;
     const msg=m.querySelector('#orderEmailMsg');msg.textContent='Versand wird vorbereitet …';
-    const {data,error}=await db.functions.invoke('send-order-email',{body:{actor_email:currentUser.email,order_id:o.id,recipients,subject:fd.get('subject'),body:fd.get('body'),cc:ORDER_MAIL_CC}});
+    const attachment_ids=fd.getAll('attachments');
+    const {data,error}=await db.functions.invoke('send-order-email',{body:{actor_email:currentUser.email,order_id:o.id,recipients,subject:fd.get('subject'),body:fd.get('body'),cc:ORDER_MAIL_CC,attachment_ids}});
     if(error||!data?.ok){msg.textContent='Versand fehlgeschlagen: '+(data?.error||error?.message||'Unbekannter Fehler');return}
     msg.textContent=`Versand vom Maildienst angenommen. Vorgangs-ID: ${data.message_id||'nicht zurückgegeben'}. Bitte zusätzlich den Eingang der CC-Kopie prüfen.`;
     toast('Auftrags-E-Mail versendet');
@@ -428,7 +476,7 @@ async function showOrder(id){
 
   const history=await db.from('vermittlung_verlauf')
     .select('*').eq('auftrag_id',id).order('datum',{ascending:false});
-  const docs=await db.from('vermittlung_dokumente')
+  const docs=await db.from('vermittlung_auftragsdokumente')
     .select('*').eq('auftrag_id',id).order('erstellt_am',{ascending:false});
 
   const m=modal(`
@@ -580,24 +628,9 @@ async function showOrder(id){
 
     <div class="panel" style="margin-top:18px">
       <h3>Dokumentation</h3>
-      <form id="docForm" class="form-grid">
-        <label>Dokumenttyp<select name="dokumenttyp">
-          <option>Kostenvoranschlag</option><option>Angebot</option><option>Rechnung</option>
-          <option>Foto</option><option>Vertrag</option><option>Sonstiges</option>
-        </select></label>
-        <label>Dateiname<input name="dateiname" required placeholder="z. B. Angebot Müller.pdf"></label>
-        <label>Google-Drive-Pfad / Ordner<input name="drive_pfad" placeholder="2026/2026-001 Müller Wasserschaden/Angebote"></label>
-        <label>Google-Drive-Link<input name="drive_url" type="url"></label>
-        <div class="full actions"><button class="primary">Dokument verknüpfen</button></div>
-      </form>
-      <div class="table-wrap">
-        <table class="table"><thead><tr><th>Typ</th><th>Datei</th><th>Drive</th><th>Erstellt</th></tr></thead>
-        <tbody>${(docs.data||[]).map(d=>`<tr>
-          <td>${esc(d.dokumenttyp)}</td><td>${esc(d.dateiname)}</td>
-          <td>${d.drive_url?`<a href="${esc(d.drive_url)}" target="_blank" rel="noopener">Öffnen</a>`:esc(d.drive_pfad||'—')}</td>
-          <td>${new Date(d.erstellt_am).toLocaleString('de-DE')}</td>
-        </tr>`).join('')||'<tr><td colspan="4">Noch keine Dokumente verknüpft.</td></tr>'}</tbody></table>
-      </div>
+      <p class="muted">Dateien werden beim Anlegen des Auftrags hochgeladen. Die unten aufgeführten Dokumente können beim E-Mail-Versand ausgewählt werden.</p>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Datei</th><th>Typ</th><th>Größe</th><th>Hochgeladen</th></tr></thead>
+      <tbody>${(docs.data||[]).map(d=>`<tr><td>${esc(d.dateiname)}</td><td>${esc(d.mime_type||'unbekannt')}</td><td>${(Number(d.dateigroesse||0)/1024/1024).toFixed(2)} MB</td><td>${new Date(d.erstellt_am).toLocaleString('de-DE')}</td></tr>`).join('')||'<tr><td colspan="4">Noch keine Dateien hochgeladen.</td></tr>'}</tbody></table></div>
     </div>
 
     <div class="panel" style="margin-top:18px">
@@ -624,15 +657,6 @@ async function showOrder(id){
     const {error}=await db.from('vermittlung_auftraege').update(d).eq('id',id);
     if(error){alert(error.message);return}
     m.remove();toast('Auftrag aktualisiert');navigate('orders');
-  };
-
-  m.querySelector('#docForm').onsubmit=async e=>{
-    e.preventDefault();
-    const fd=new FormData(e.target), d=Object.fromEntries(fd.entries());
-    d.auftrag_id=id; d.hochgeladen_von=currentUser.email;
-    const {error}=await db.from('vermittlung_dokumente').insert(d);
-    if(error){alert(error.message);return}
-    m.remove();toast('Dokument verknüpft');showOrder(id);
   };
 
   m.querySelector('#historyForm').onsubmit=async e=>{
