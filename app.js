@@ -349,6 +349,8 @@ function renderOrderEntry(){
   $('#entryOrderForm').onsubmit=async e=>{
     e.preventDefault();
     const fd=new FormData(e.target), d=Object.fromEntries(fd.entries());
+    // Leere HTML-Datumsfelder als NULL senden, nicht als leeren String.
+    for(const k of ['geplanter_beginn','fertigstellung','provisions_rechnungsdatum','provisions_zahlungsdatum'])if(d[k]==='')d[k]=null;
     d.versicherung=d.versicherung===''?null:d.versicherung==='true';
     const {data,error}=await db.rpc('vermittlung_create_order_entry',{p_user_email:currentUser.email,p_data:d});
     if(error){$('#entryOrderMsg').textContent='Auftrag konnte nicht gespeichert werden: '+error.message;return;}
@@ -426,6 +428,8 @@ function newOrder(){
     btn.disabled=true; msg.textContent='Auftrag wird gespeichert …';
     const fd=new FormData(e.target), d=Object.fromEntries([...fd.entries()].filter(([k])=>k!=='orderFiles'));
     for(const k of ['kunde_id','ausfuehrende_firma_id'])if(!d[k])d[k]=null;
+    // Optionales Datum ohne Eingabe muss als NULL in Supabase gespeichert werden.
+    for(const k of ['geplanter_beginn','fertigstellung','provisions_rechnungsdatum','provisions_zahlungsdatum'])if(d[k]==='')d[k]=null;
     for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto'])d[k]=Number(d[k]||0);
     d.versicherung=d.versicherung===''?null:d.versicherung==='true'; d.created_by=currentUser.email;
     const {data:created,error}=await db.from('vermittlung_auftraege').insert(d).select('id').single();
@@ -703,6 +707,8 @@ async function showOrder(id){
     e.preventDefault();
     const fd=new FormData(e.target), d=Object.fromEntries(fd.entries());
     for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto']) d[k]=Number(d[k]||0);
+    // HTML date inputs liefern bei leerem Feld ""; PostgreSQL DATE erwartet NULL oder ein Datum.
+    for(const k of ['geplanter_beginn','fertigstellung','provisions_rechnungsdatum','provisions_zahlungsdatum']) if(d[k]==='') d[k]=null;
     for(const k of ['provision_abgerechnet','provision_bezahlt']) d[k]=d[k]==='true';
     d.versicherung=d.versicherung===''?null:d.versicherung==='true';
     d.ausfuehrende_firma_id=d.ausfuehrende_firma_id||null;
