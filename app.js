@@ -472,6 +472,14 @@ async function openOrderEmail(orderId){
   };
 }
 
+async function openOrderDocument(documentId){
+  try{
+    const {data,error}=await db.functions.invoke('get-order-document-url',{body:{actor_email:currentUser.email,document_id:documentId}});
+    if(error||!data?.ok||!data?.url) throw new Error(data?.error||error?.message||'Datei-Link konnte nicht erstellt werden.');
+    window.open(data.url,'_blank','noopener,noreferrer');
+  }catch(err){alert('Datei konnte nicht geöffnet werden: '+(err?.message||err));}
+}
+
 async function showOrder(id){
   const o=orders.find(x=>x.id===id);
   if(!o)return;
@@ -632,8 +640,8 @@ async function showOrder(id){
     <div class="panel" style="margin-top:18px">
       <h3>Dokumentation</h3>
       <p class="muted">Dateien werden beim Anlegen des Auftrags hochgeladen. Die unten aufgeführten Dokumente können beim E-Mail-Versand ausgewählt werden.</p>
-      <div class="table-wrap"><table class="table"><thead><tr><th>Datei</th><th>Typ</th><th>Größe</th><th>Hochgeladen</th></tr></thead>
-      <tbody>${(docs.data||[]).map(d=>`<tr><td>${esc(d.dateiname)}</td><td>${esc(d.mime_type||'unbekannt')}</td><td>${(Number(d.dateigroesse||0)/1024/1024).toFixed(2)} MB</td><td>${d.erstellt_am?new Date(d.erstellt_am).toLocaleString('de-DE'):'—'}</td></tr>`).join('')||(docs.error?`<tr><td colspan="4">Dokumente konnten nicht geladen werden. Details stehen in der Browser-Konsole.</td></tr>`:'<tr><td colspan="4">Noch keine Dateien hochgeladen.</td></tr>')}</tbody></table></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Datei</th><th>Typ</th><th>Größe</th><th>Hochgeladen</th><th>Aktion</th></tr></thead>
+      <tbody>${(docs.data||[]).map(d=>`<tr><td>${esc(d.dateiname)}</td><td>${esc(d.mime_type||'unbekannt')}</td><td>${(Number(d.dateigroesse||0)/1024/1024).toFixed(2)} MB</td><td>${d.erstellt_am?new Date(d.erstellt_am).toLocaleString('de-DE'):'—'}</td><td><button type="button" class="close" onclick="openOrderDocument('${esc(d.id)}')">Öffnen / Herunterladen</button></td></tr>`).join('')||(docs.error?`<tr><td colspan="4">Dokumente konnten nicht geladen werden. Details stehen in der Browser-Konsole.</td></tr>`:'<tr><td colspan="4">Noch keine Dateien hochgeladen.</td></tr>')}</tbody></table></div>
     </div>
 
     <div class="panel" style="margin-top:18px">
