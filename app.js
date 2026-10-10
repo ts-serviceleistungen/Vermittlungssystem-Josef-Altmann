@@ -2,6 +2,19 @@ const db = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_PUB
 const $ = s => document.querySelector(s);
 const money = n => new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Number(n||0));
 const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+function showToast(message){
+  let el=document.getElementById('app-showToast');
+  if(!el){
+    el=document.createElement('div');
+    el.id='app-showToast';
+    el.style.cssText='position:fixed;right:20px;bottom:20px;z-index:99999;max-width:min(420px,calc(100vw - 40px));padding:12px 16px;background:#172033;color:#fff;border:1px solid #c6a75e;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.25);font-size:14px;';
+    document.body.appendChild(el);
+  }
+  el.textContent=String(message??'');
+  el.style.display='block';
+  if(el._hideTimer) clearTimeout(el._hideTimer);
+  el._hideTimer=setTimeout(()=>{el.style.display='none';},3500);
+}
 let currentUser=null, customers=[], companies=[], orders=[];
 const ADMIN_ROLE='Administrator';
 const ENTRY_ROLE='Auftragserfassung';
@@ -121,7 +134,7 @@ function renderGoogle(){
         <li>Google-Drive-Ordner je Auftrag nach Jahr und Auftragsnummer</li>
       </ul>
     </div>`);
-  $('#googleForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);localStorage.setItem(GOOGLE_SYNC_URL_KEY,fd.get('url').trim());localStorage.setItem(GOOGLE_SYNC_TOKEN_KEY,fd.get('token').trim());toast('Google-Verbindung gespeichert');};
+  $('#googleForm').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);localStorage.setItem(GOOGLE_SYNC_URL_KEY,fd.get('url').trim());localStorage.setItem(GOOGLE_SYNC_TOKEN_KEY,fd.get('token').trim());showToast('Google-Verbindung gespeichert');};
 }
 function openGoogleSetup(){const u=googleSyncUrl(),t=googleSyncToken();if(!u||!t){alert('Bitte zuerst URL und Sicherheitsschlüssel speichern.');return}window.open(u+'?action=setup&token='+encodeURIComponent(t),'_blank','noopener');}
 async function syncGoogle(){
@@ -132,7 +145,7 @@ async function syncGoogle(){
   try{
     await fetch(u,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
     const s=$('#googleStatus'); if(s)s.textContent='Synchronisierung wurde an Google übergeben. Bitte kurz warten, bis die Tabellen aktualisiert sind.';
-    toast('Synchronisierung gestartet');
+    showToast('Synchronisierung gestartet');
   }catch(e){alert('Google-Synchronisierung konnte nicht gestartet werden: '+e.message)}
 }
 
@@ -163,9 +176,9 @@ $('#main').innerHTML=page('Dashboard',`<div class="hero-dashboard"><div><span cl
 function orderTable(list){if(!list.length)return '<p class="muted">Keine Aufträge vorhanden.</p>';return `<div class="table-wrap"><table class="table"><thead><tr><th>Nr.</th><th>Bereich</th><th>Status</th><th>Auftrag</th><th>Wert</th><th>Provision</th><th></th></tr></thead><tbody>${list.map(o=>`<tr><td><button class="secondary" onclick="showOrder('${o.id}')">${esc(o.auftragsnummer||'—')}</button></td><td>${esc(o.bereich)}</td><td><span class="badge status">${esc(o.status)}</span></td><td>${esc(o.beschreibung||'—')}</td><td>${money(o.auftragswert_netto)}</td><td>${money(o.provision)}</td><td><button class="delete-btn" onclick="deleteOrder('${o.id}');event.stopPropagation()">Löschen</button></td></tr>`).join('')}</tbody></table></div>`}
 function renderOrders(){const body=`<div class="toolbar"><input id="orderSearch" placeholder="Aufträge suchen…" oninput="filterOrders()"><button class="primary" onclick="newOrder()">+ Neuer Auftrag</button></div><div id="ordersTable">${orderTable(orders)}</div>`;$('#main').innerHTML=page('Aufträge',body)}
 function filterOrders(){const q=$('#orderSearch').value.toLowerCase();$('#ordersTable').innerHTML=orderTable(orders.filter(o=>JSON.stringify(o).toLowerCase().includes(q)))}
-async function deleteCustomer(id){if(!confirm('Diesen Kunden wirklich löschen?'))return;const {error}=await db.from('vermittlung_kunden').delete().eq('id',id);if(error){alert('Kunde konnte nicht gelöscht werden: '+error.message);return}toast('Kunde gelöscht');navigate('customers')}
-async function deleteCompany(id){if(!confirm('Diese Firma wirklich löschen?'))return;const {error}=await db.from('vermittlung_firmen').delete().eq('id',id);if(error){alert('Firma konnte nicht gelöscht werden: '+error.message);return}toast('Firma gelöscht');navigate('companies')}
-async function deleteOrder(id){if(!confirm('Diesen Auftrag wirklich löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;const {error}=await db.from('vermittlung_auftraege').delete().eq('id',id);if(error){alert('Auftrag konnte nicht gelöscht werden: '+error.message);return}toast('Auftrag gelöscht');navigate('orders')}
+async function deleteCustomer(id){if(!confirm('Diesen Kunden wirklich löschen?'))return;const {error}=await db.from('vermittlung_kunden').delete().eq('id',id);if(error){alert('Kunde konnte nicht gelöscht werden: '+error.message);return}showToast('Kunde gelöscht');navigate('customers')}
+async function deleteCompany(id){if(!confirm('Diese Firma wirklich löschen?'))return;const {error}=await db.from('vermittlung_firmen').delete().eq('id',id);if(error){alert('Firma konnte nicht gelöscht werden: '+error.message);return}showToast('Firma gelöscht');navigate('companies')}
+async function deleteOrder(id){if(!confirm('Diesen Auftrag wirklich löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;const {error}=await db.from('vermittlung_auftraege').delete().eq('id',id);if(error){alert('Auftrag konnte nicht gelöscht werden: '+error.message);return}showToast('Auftrag gelöscht');navigate('orders')}
 function renderCustomers(){
   const rows=customers.map(c=>`<tr><td>${esc((c.vorname||'')+' '+(c.nachname||''))}</td><td>${esc(c.firma||'')}</td><td>${esc(c.telefon||'')}</td><td>${esc(c.email||'')}</td><td>${esc((c.strasse||'')+' '+(c.plz||'')+' '+(c.ort||''))}</td><td><button class="delete-btn" onclick="deleteCustomer('${c.id}')">Löschen</button></td></tr>`).join('');
   $('#main').innerHTML=page('Kunden',`<div class="toolbar"><input id="customerSearch" placeholder="Kunden suchen…" oninput="filterCustomers()"><button class="primary" onclick="newCustomer()">+ Neuer Kunde</button></div><div id="customersTable"><div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Firma</th><th>Telefon</th><th>E-Mail</th><th>Adresse</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6">Noch keine Kunden.</td></tr>'}</tbody></table></div></div>`)
@@ -193,7 +206,7 @@ function newCustomer(){
     const d=Object.fromEntries(new FormData(e.target).entries());
     const {error}=await db.from('vermittlung_kunden').insert(d);
     if(error){alert('Kunde konnte nicht gespeichert werden: '+error.message);return}
-    m.remove();toast('Kunde gespeichert');navigate('customers');
+    m.remove();showToast('Kunde gespeichert');navigate('customers');
   };
 }
 function renderCompanies(){
@@ -225,7 +238,7 @@ function newCompany(){
     const d=Object.fromEntries(new FormData(e.target).entries());
     const {error}=await db.from('vermittlung_firmen').insert(d);
     if(error){alert('Firma konnte nicht gespeichert werden: '+error.message);return}
-    m.remove();toast('Firma gespeichert');navigate('companies');
+    m.remove();showToast('Firma gespeichert');navigate('companies');
   };
 }
 function renderCommissions(){
@@ -308,14 +321,14 @@ async function togglePeriodPaid(id,paid){
   const update={bezahlt:paid,zahlungsdatum:paid?new Date().toISOString().slice(0,10):null,aktualisiert_am:new Date().toISOString()};
   const {error}=await db.from('vermittlung_auftragsabrechnungen').update(update).eq('id',id);
   if(error){alert('Zahlungsstatus konnte nicht geändert werden: '+error.message);return;}
-  toast(paid?'Abrechnungsperiode als bezahlt markiert':'Abrechnungsperiode wieder offen');
+  showToast(paid?'Abrechnungsperiode als bezahlt markiert':'Abrechnungsperiode wieder offen');
   await loadBase();renderReports();
 }
 async function generatePeriodsNow(){
   if(!isAdmin())return;
   const {data,error}=await db.rpc('vermittlung_generate_due_periods',{p_actor_email:currentUser.email});
   if(error){alert('Abrechnungen konnten nicht erzeugt werden. Bitte SQL-Einrichtung und Berechtigungen prüfen: '+error.message);return;}
-  toast(`Abrechnungen geprüft: ${data?.created_count??'fertig'}`);
+  showToast(`Abrechnungen geprüft: ${data?.created_count??'fertig'}`);
   await loadBase();renderReports();
 }
 function modal(content){const el=document.createElement('div');el.className='modal show';el.innerHTML=`<div class="modal-card">${content}</div>`;document.body.appendChild(el);return el}
@@ -353,7 +366,7 @@ function renderOrderEntry(){
     if(error){$('#entryOrderMsg').textContent='Auftrag konnte nicht gespeichert werden: '+error.message;return;}
     e.target.reset();
     $('#entryOrderMsg').textContent='Auftrag wurde erfolgreich erfasst.';
-    toast('Auftrag gespeichert');
+    showToast('Auftrag gespeichert');
   };
 }
 
@@ -380,7 +393,7 @@ function newAppUser(){
     <label>Rolle<select name="rolle"><option value="Auftragserfassung">Auftragserfassung</option><option value="Administrator">Administrator</option></select></label>
     <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Benutzer speichern</button></div>
   </form>`);
-  m.querySelector('form').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await db.rpc('vermittlung_admin_create_user',{p_actor_email:currentUser.email,p_name:d.name,p_email:d.email,p_password:d.password,p_rolle:d.rolle});if(error){alert(error.message);return}m.remove();toast('Benutzer angelegt');loadAppUsers();};
+  m.querySelector('form').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await db.rpc('vermittlung_admin_create_user',{p_actor_email:currentUser.email,p_name:d.name,p_email:d.email,p_password:d.password,p_rolle:d.rolle});if(error){alert(error.message);return}m.remove();showToast('Benutzer angelegt');loadAppUsers();};
 }
 function editAppUser(id,name,email,rolle,aktiv){
   const m=modal(`<h2>Benutzer bearbeiten</h2><form id="editAppUserForm" class="form-grid">
@@ -390,9 +403,9 @@ function editAppUser(id,name,email,rolle,aktiv){
     <label class="full">Neues Passwort (leer lassen = unverändert)<input name="password" type="password" minlength="8"></label>
     <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Änderungen speichern</button></div>
   </form>`);
-  m.querySelector('form').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await db.rpc('vermittlung_admin_update_user',{p_actor_email:currentUser.email,p_user_id:id,p_name:d.name,p_email:d.email,p_password:d.password||null,p_rolle:d.rolle,p_aktiv:d.aktiv==='true'});if(error){alert(error.message);return}m.remove();toast('Benutzer geändert');loadAppUsers();};
+  m.querySelector('form').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await db.rpc('vermittlung_admin_update_user',{p_actor_email:currentUser.email,p_user_id:id,p_name:d.name,p_email:d.email,p_password:d.password||null,p_rolle:d.rolle,p_aktiv:d.aktiv==='true'});if(error){alert(error.message);return}m.remove();showToast('Benutzer geändert');loadAppUsers();};
 }
-async function deleteAppUser(id){if(!confirm('Diesen Benutzer wirklich löschen?'))return;const {error}=await db.rpc('vermittlung_admin_delete_user',{p_actor_email:currentUser.email,p_user_id:id});if(error){alert(error.message);return}toast('Benutzer gelöscht');loadAppUsers();}
+async function deleteAppUser(id){if(!confirm('Diesen Benutzer wirklich löschen?'))return;const {error}=await db.rpc('vermittlung_admin_delete_user',{p_actor_email:currentUser.email,p_user_id:id});if(error){alert(error.message);return}showToast('Benutzer gelöscht');loadAppUsers();}
 
 function newOrder(){
   const m=modal(`<h2>Neuer Auftrag</h2><form id="orderForm" class="form-grid">
@@ -444,7 +457,7 @@ function newOrder(){
     }
     m.remove();
     if(failed.length)alert('Der Auftrag wurde gespeichert, aber einige Dateien konnten nicht hochgeladen werden:\n\n'+failed.join('\n'));
-    else toast(files.length?`Auftrag und ${files.length} Dokument(e) gespeichert`:'Auftrag gespeichert');
+    else showToast(files.length?`Auftrag und ${files.length} Dokument(e) gespeichert`:'Auftrag gespeichert');
     navigate('orders');
   };
 }
@@ -515,7 +528,7 @@ async function openOrderEmail(orderId){
     const {data,error}=await db.functions.invoke('send-order-email',{body:{actor_email:currentUser.email,order_id:o.id,recipients,subject:fd.get('subject'),body:fd.get('body'),cc:ORDER_MAIL_CC,attachment_ids}});
     if(error||!data?.ok){msg.textContent='Versand fehlgeschlagen: '+(data?.error||error?.message||'Unbekannter Fehler');return}
     msg.textContent=`Versand vom Maildienst angenommen. Vorgangs-ID: ${data.message_id||'nicht zurückgegeben'}. Bitte zusätzlich den Eingang der CC-Kopie prüfen.`;
-    toast('Auftrags-E-Mail versendet');
+    showToast('Auftrags-E-Mail versendet');
   };
 }
 
@@ -733,7 +746,7 @@ async function showOrder(id){
     d.updated_at=new Date().toISOString();
     const {error}=await db.from('vermittlung_auftraege').update(d).eq('id',id);
     if(error){alert(error.message);return}
-    m.remove();toast('Auftrag aktualisiert');navigate('orders');
+    m.remove();showToast('Auftrag aktualisiert');navigate('orders');
   };
 
   m.querySelector('#historyForm').onsubmit=async e=>{
@@ -743,6 +756,6 @@ async function showOrder(id){
       auftrag_id:id, aktivitaet:'Bearbeitung', notiz, bearbeiter:currentUser.email
     });
     if(error){alert(error.message);return}
-    m.remove();toast('Verlauf gespeichert');showOrder(id);
+    m.remove();showToast('Verlauf gespeichert');showOrder(id);
   };
 }
