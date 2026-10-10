@@ -441,7 +441,9 @@ async function openOrderEmail(orderId){
   const o=orders.find(x=>String(x.id)===String(orderId));
   if(!o)return;
   const eligible=companies.filter(c=>String(c.email||'').includes('@'));
-  const relatedDocs=await db.from('vermittlung_auftragsdokumente').select('id,dateiname,mime_type,dateigroesse').eq('auftrag_id',orderId).order('erstellt_am',{ascending:false});
+  const {data: relatedDocsResult, error: relatedDocsError}=await db.functions.invoke('get-order-documents',{body:{actor_email:currentUser.email,order_id:orderId}});
+  const relatedDocs={data:relatedDocsResult?.ok?(relatedDocsResult.documents||[]):[],error:relatedDocsError||(!relatedDocsResult?.ok?new Error(relatedDocsResult?.error||'Dokumente konnten nicht geladen werden.'):null)};
+  if(relatedDocs.error) console.error('Dokumente für E-Mail konnten nicht geladen werden:',relatedDocs.error.message);
   const subject=`Neue Auftragsanfrage – ${o.bereich||'Auftrag'} – ${o.auftragsnummer||orderId}`;
   const m=modal(`<div class="page-head"><div><h2>Auftrag versenden</h2><p class="muted">Empfänger auswählen und Nachricht vor dem Versand prüfen.</p></div><button type="button" class="close" onclick="this.closest('.modal').remove()">Schließen</button></div>
   <form id="orderEmailForm" class="form-grid">
@@ -476,8 +478,9 @@ async function showOrder(id){
 
   const history=await db.from('vermittlung_verlauf')
     .select('*').eq('auftrag_id',id).order('datum',{ascending:false});
-  const docs=await db.from('vermittlung_auftragsdokumente')
-    .select('*').eq('auftrag_id',id).order('erstellt_am',{ascending:false});
+  const {data: docsResult, error: docsError}=await db.functions.invoke('get-order-documents',{body:{actor_email:currentUser.email,order_id:id}});
+  const docs={data:docsResult?.ok?(docsResult.documents||[]):[],error:docsError||(!docsResult?.ok?new Error(docsResult?.error||'Dokumente konnten nicht geladen werden.'):null)};
+  if(docs.error) console.error('Dokumente für Auftrag konnten nicht geladen werden:',docs.error.message);
 
   const m=modal(`
     <div class="page-head">
@@ -630,7 +633,7 @@ async function showOrder(id){
       <h3>Dokumentation</h3>
       <p class="muted">Dateien werden beim Anlegen des Auftrags hochgeladen. Die unten aufgeführten Dokumente können beim E-Mail-Versand ausgewählt werden.</p>
       <div class="table-wrap"><table class="table"><thead><tr><th>Datei</th><th>Typ</th><th>Größe</th><th>Hochgeladen</th></tr></thead>
-      <tbody>${(docs.data||[]).map(d=>`<tr><td>${esc(d.dateiname)}</td><td>${esc(d.mime_type||'unbekannt')}</td><td>${(Number(d.dateigroesse||0)/1024/1024).toFixed(2)} MB</td><td>${new Date(d.erstellt_am).toLocaleString('de-DE')}</td></tr>`).join('')||'<tr><td colspan="4">Noch keine Dateien hochgeladen.</td></tr>'}</tbody></table></div>
+      <tbody>${(docs.data||[]).map(d=>`<tr><td>${esc(d.dateiname)}</td><td>${esc(d.mime_type||'unbekannt')}</td><td>${(Number(d.dateigroesse||0)/1024/1024).toFixed(2)} MB</td><td>${d.erstellt_am?new Date(d.erstellt_am).toLocaleString('de-DE'):'—'}</td></tr>`).join('')||(docs.error?`<tr><td colspan="4">Dokumente konnten nicht geladen werden. Details stehen in der Browser-Konsole.</td></tr>`:'<tr><td colspan="4">Noch keine Dateien hochgeladen.</td></tr>')}</tbody></table></div>
     </div>
 
     <div class="panel" style="margin-top:18px">
