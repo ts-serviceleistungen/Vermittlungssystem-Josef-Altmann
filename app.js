@@ -354,6 +354,74 @@ function editAppUser(id,name,email,rolle,aktiv){
 async function deleteAppUser(id){if(!confirm('Diesen Benutzer wirklich löschen?'))return;const {error}=await db.rpc('vermittlung_admin_delete_user',{p_actor_email:currentUser.email,p_user_id:id});if(error){alert(error.message);return}toast('Benutzer gelöscht');loadAppUsers();}
 
 function newOrder(){const m=modal(`<h2>Neuer Auftrag</h2><form id="orderForm" class="form-grid"><label>Bereich<select name="bereich"><option>Wasserschaden / Sanierung</option><option>Reinigungsvermittlung</option><option>Gartenvermittlung</option><option>Immobilien / Vermietung</option><option>Sonstige Vermittlung</option></select></label><label>Priorität<select name="prioritaet"><option>Normal</option><option>Dringend</option></select></label><label>Status<select name="status">${['Neue Anfrage','In Prüfung','Kostenvoranschlag angefordert','Kostenvoranschlag erhalten','Angebot beim Kunden','Auftrag erteilt','In Ausführung','Abgeschlossen','Provision offen','Abgerechnet','Storniert'].map(x=>`<option>${x}</option>`).join('')}</select></label><label>Verantwortlich<input name="verantwortlich"></label><label>Kunde<select name="kunde_id"><option value="">— neuer / noch nicht zugeordnet —</option>${customers.map(c=>`<option value="${c.id}">${esc((c.vorname||'')+' '+(c.nachname||'')+(c.firma?' – '+c.firma:''))}</option>`).join('')}</select></label><label>Ausführende Firma<select name="ausfuehrende_firma_id"><option value="">— noch nicht zugeordnet —</option>${companies.map(c=>`<option value="${c.id}">${esc(c.firmenname)}</option>`).join('')}</select></label><label class="full">Objektadresse<input name="objekt_adresse"></label><label>Objekttyp<select name="objekt_typ"><option>Wohnung</option><option>Einfamilienhaus</option><option>Mehrfamilienhaus</option><option>Gewerbe</option><option>Sonstiges</option></select></label><label>Geplanter Beginn<input type="date" name="geplanter_beginn"></label><label class="full">Beschreibung<textarea name="beschreibung"></textarea></label><label>Kostenvoranschlag netto<input type="number" step="0.01" name="kostenvoranschlag_netto" value="0"></label><label>Kostenvoranschlag brutto<input type="number" step="0.01" name="kostenvoranschlag_brutto" value="0"></label><label>Auftragswert netto<input type="number" step="0.01" name="auftragswert_netto" value="0"></label><label>Schadensart (bei Wasserschaden)<input name="schadensart"></label><label>Schadensort<input name="schadensort"></label><label>Versicherung<select name="versicherung"><option value="">unbekannt</option><option value="true">Ja</option><option value="false">Nein</option></select></label><label>Schadennummer<input name="schadennummer"></label><label>Versicherungsgesellschaft<input name="versicherungsgesellschaft"></label><label>Notizen<textarea name="notizen"></textarea></label><div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Auftrag speichern</button></div></form>`);m.querySelector('form').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);const d=Object.fromEntries(fd.entries());for(const k of ['kunde_id','ausfuehrende_firma_id'])if(!d[k])d[k]=null;for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto'])d[k]=Number(d[k]||0);d.versicherung=d.versicherung===''?null:d.versicherung==='true';d.created_by=currentUser.email;const {error}=await db.from('vermittlung_auftraege').insert(d);if(error){alert(error.message);return}m.remove();toast('Auftrag gespeichert');navigate('orders')}}
+
+const ORDER_MAIL_FROM='auftragsservice@josef-altmann.de';
+const ORDER_MAIL_CC='auftragsservice@josef-altmann.de';
+function orderMailText(o){
+  const fields=[
+    ['Auftragsnummer',o.auftragsnummer],['Art des Auftrags',o.bereich],['Objektadresse',o.objekt_adresse],
+    ['Objekttyp',o.objekt_typ],['Ansprechpartner',o.objekt_kontakt],['Telefon',o.objekt_kontakt_telefon],
+    ['Gewünschter Termin',o.geplanter_beginn],['Fertigstellung',o.fertigstellung],['Dringlichkeit',o.prioritaet],
+    ['Status',o.status],['Schadensart',o.schadensart],['Schadensort',o.schadensort],
+    ['Versicherung',o.versicherung===true?'Ja':o.versicherung===false?'Nein':'Nicht angegeben'],
+    ['Schadennummer',o.schadennummer],['Versicherungsgesellschaft',o.versicherungsgesellschaft],
+    ['Beschreibung',o.beschreibung],['Weitere Informationen',o.notizen]
+  ].filter(([k,v])=>v!==null&&v!==undefined&&String(v).trim()!=='');
+  return `Sehr geehrte Damen und Herren,
+
+wir haben eine neue Auftragsanfrage erhalten und würden Ihnen diesen Auftrag gerne zur Prüfung und möglichen Übernahme weiterleiten.
+
+Nachfolgend finden Sie die uns vorliegenden Informationen zum Auftrag:
+
+${fields.map(([k,v])=>`${k}: ${v}`).join('\n')}
+
+Sollten Sie Interesse an der Übernahme dieses Auftrags haben, freuen wir uns über eine kurze Rückmeldung per E-Mail oder WhatsApp. Bitte teilen Sie uns kurz mit, ob Sie den Auftrag grundsätzlich übernehmen könnten. Wir stimmen anschließend die weiteren Einzelheiten mit Ihnen ab.
+
+Sollten Sie aktuell keine Kapazitäten haben, genügt uns ebenfalls eine kurze Nachricht. Vielen Dank!
+
+Wir freuen uns auf eine gute Zusammenarbeit und Ihre Rückmeldung.
+
+Mit freundlichen Grüßen
+
+Josef Altmann
+Vermittlungssystem Josef Altmann
+Grabitzer Straße 21 a
+93437 Furth im Wald
+E-Mail: ${ORDER_MAIL_FROM}`;
+}
+async function openOrderEmail(orderId){
+  if(!isAdmin()){alert('Nur Administratoren dürfen Aufträge versenden.');return}
+  const o=orders.find(x=>String(x.id)===String(orderId));
+  if(!o)return;
+  const eligible=companies.filter(c=>String(c.email||'').includes('@'));
+  const relatedDocs=await db.from('vermittlung_dokumente').select('*').eq('auftrag_id',orderId).order('erstellt_am',{ascending:false});
+  const subject=`Neue Auftragsanfrage – ${o.bereich||'Auftrag'} – ${o.auftragsnummer||orderId}`;
+  const m=modal(`<div class="page-head"><div><h2>Auftrag versenden</h2><p class="muted">Empfänger auswählen und Nachricht vor dem Versand prüfen.</p></div><button type="button" class="close" onclick="this.closest('.modal').remove()">Schließen</button></div>
+  <form id="orderEmailForm" class="form-grid">
+    <div class="full panel"><h3>Firmen auswählen</h3><p class="muted">Die Firmen stammen aus „Firmen / Subunternehmer“. Es werden nur Firmen mit E-Mail-Adresse angezeigt.</p>
+    ${eligible.map(c=>`<label class="check-row"><input type="checkbox" name="recipients" value="${esc(c.id)}"> ${esc(c.firmenname)} — ${esc(c.email)}</label>`).join('')||'<p>Keine Firmen mit E-Mail-Adresse vorhanden.</p>'}</div>
+    <label class="full">Betreff<input name="subject" value="${esc(subject)}" required></label>
+    <label class="full">E-Mail-Text<textarea name="body" rows="18" required>${esc(orderMailText(o))}</textarea></label>
+    <div class="full panel"><strong>Absender:</strong> ${ORDER_MAIL_FROM}<br><strong>CC:</strong> ${ORDER_MAIL_CC}
+    <p class="muted">Verknüpfte Dokumente: ${(relatedDocs.data||[]).length}. Aktuell werden Dokumentnamen und Links nicht automatisch als Anhänge übertragen; vorhandene Google-Drive-Links können in den E-Mail-Text ergänzt werden.</p></div>
+    <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary" ${eligible.length?'':'disabled'}>Jetzt versenden</button></div>
+    <p id="orderEmailMsg" class="full muted"></p>
+  </form>`);
+  m.querySelector('#orderEmailForm').onsubmit=async e=>{
+    e.preventDefault();
+    const fd=new FormData(e.target);
+    const recipientIds=fd.getAll('recipients');
+    if(!recipientIds.length){alert('Bitte mindestens eine Firma auswählen.');return}
+    const recipients=eligible.filter(c=>recipientIds.includes(String(c.id))).map(c=>({company_id:c.id,name:c.firmenname,email:c.email}));
+    if(!confirm(`Auftrag an ${recipients.length} Firma/Firmen versenden? Eine Kopie geht an ${ORDER_MAIL_CC}.`))return;
+    const msg=m.querySelector('#orderEmailMsg');msg.textContent='Versand wird vorbereitet …';
+    const {data,error}=await db.functions.invoke('send-order-email',{body:{actor_email:currentUser.email,order_id:o.id,recipients,subject:fd.get('subject'),body:fd.get('body'),cc:ORDER_MAIL_CC}});
+    if(error||!data?.ok){msg.textContent='Versand fehlgeschlagen: '+(data?.error||error?.message||'Unbekannter Fehler');return}
+    msg.textContent=`Versand vom Maildienst angenommen. Vorgangs-ID: ${data.message_id||'nicht zurückgegeben'}. Bitte zusätzlich den Eingang der CC-Kopie prüfen.`;
+    toast('Auftrags-E-Mail versendet');
+  };
+}
+
 async function showOrder(id){
   const o=orders.find(x=>x.id===id);
   if(!o)return;
@@ -369,7 +437,10 @@ async function showOrder(id){
         <h2>Auftrag ${esc(o.auftragsnummer||'')}</h2>
         <p class="muted">${esc(o.bereich)}</p>
       </div>
-      <button class="close" onclick="this.closest('.modal').remove()">Schließen</button>
+      <div class="actions">
+        ${isAdmin()?`<button type="button" class="primary" onclick="openOrderEmail('${o.id}')">✉ Auftrag versenden</button>`:''}
+        <button class="close" onclick="this.closest('.modal').remove()">Schließen</button>
+      </div>
     </div>
 
     <form id="detailForm" class="form-grid">
