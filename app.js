@@ -259,9 +259,51 @@ function renderCommissions(){
       <div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Aufträge</th><th>Auftragsvolumen</th><th>Provision für uns</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${renderCompanyCommissionRows(active)||'<tr><td colspan="6">Noch keine Firmen angelegt.</td></tr>'}</tbody></table></div>
     </div>
     <div class="panel" style="margin-top:18px">
+      <div class="panel-title-row"><div><span class="eyebrow">MONATSAUSWERTUNG</span><h3>Provisionen je Firma und Monat</h3></div><label>Monat auswählen <input id="commissionMonth" type="month" value="${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}" onchange="loadMonthlyCommissionReport()"></label></div>
+      <p class="muted">Aufträge werden nach Erstellungsdatum zugeordnet. Der Zahlungsstatus wird separat je Firma und Monat gespeichert.</p>
+      <div id="monthlyCompanyReport"><p class="muted">Monatsauswertung wird geladen …</p></div>
+    </div>
+    <div class="panel" style="margin-top:18px">
       <h3>Einzelne Provisionen</h3>
       <div class="table-wrap"><table class="table"><thead><tr><th>Auftrag</th><th>Bereich</th><th>Auftragswert</th><th>Provision 10 %</th><th>Abgerechnet</th><th>Bezahlt</th></tr></thead><tbody>${rows||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>
-    </div>`)}
+    </div>`);
+  loadMonthlyCommissionReport();
+}
+async function loadMonthlyCommissionReport(){
+  const monthInput=document.querySelector('#commissionMonth');
+  const target=document.querySelector('#monthlyCompanyReport');
+  if(!monthInput||!target)return;
+  const monthValue=monthInput.value;
+  if(!monthValue){target.innerHTML='<p class="muted">Bitte einen Monat auswählen.</p>';return;}
+  const monthStart=monthValue+'-01';
+  const nextDate=new Date(monthStart+'T00:00:00');
+  nextDate.setMonth(nextDate.getMonth()+1);
+  const nextMonth=nextDate.getFullYear()+'-'+String(nextDate.getMonth()+1).padStart(2,'0')+'-01';
+  const monthOrders=orders.filter(o=>{if(o.status==='Storniert'||!o.erstellt_am)return false;const created=String(o.erstellt_am).slice(0,10);return created>=monthStart&&created<nextMonth;});
+  const result=await db.from('vermittlung_firmen_provision_monat').select('firma_id,monat,bezahlt,zahlungsdatum').eq('monat',monthStart);
+  if(result.error){target.innerHTML='<p class="message">Monatsstatus konnte nicht geladen werden: '+esc(result.error.message)+'</p>';return;}
+  const statusMap=new Map((result.data||[]).map(x=>[String(x.firma_id),x]));
+  const rows=companies.map(c=>{const list=monthOrders.filter(o=>String(o.ausfuehrende_firma_id||'')===String(c.id));const volume=list.reduce((a,o)=>a+Number(o.auftragswert_netto||0),0);const commission=list.reduce((a,o)=>a+Number(o.provision||0),0);const st=statusMap.get(String(c.id));return {c,list,volume,commission,paid:Boolean(st?.bezahlt),paymentDate:st?.zahlungsdatum||''};}).sort((a,b)=>b.commission-a.commission||String(a.c.firmenname||'').localeCompare(String(b.c.firmenname||''),'de'));
+  const unassigned=monthOrders.filter(o=>!o.ausfuehrende_firma_id||!companies.some(c=>String(c.id)===String(o.ausfuehrende_firma_id)));
+  const totalVolume=monthOrders.reduce((a,o)=>a+Number(o.auftragswert_netto||0),0);
+  const totalCommission=monthOrders.reduce((a,o)=>a+Number(o.provision||0),0);
+  const totalPaid=rows.filter(r=>r.paid).reduce((a,r)=>a+r.commission,0);
+  const bodyRows=rows.map(r=>`<tr style="background:${r.paid?'#ecfdf3':'#fff1f2'}"><td><strong>${esc(r.c.firmenname||'Unbenannte Firma')}</strong></td><td>${r.list.length}</td><td>${money(r.volume)}</td><td><strong>${money(r.commission)}</strong></td><td><select onchange="saveMonthlyCommissionStatus('${r.c.id}','${monthStart}',this.value,this)"><option value="false" ${!r.paid?'selected':''}>Nein</option><option value="true" ${r.paid?'selected':''}>Ja</option></select> <span style="color:${r.paid?'#15803d':'#b91c1c'};font-weight:700">${r.paid?'BEZAHLT':'OFFEN'}</span></td><td>${r.paymentDate?new Date(r.paymentDate+'T00:00:00').toLocaleDateString('de-DE'):'—'}</td></tr>`).join('');
+  const unassignedVol=unassigned.reduce((a,o)=>a+Number(o.auftragswert_netto||0),0);
+  const unassignedProv=unassigned.reduce((a,o)=>a+Number(o.provision||0),0);
+  const unassignedRow=unassigned.length?`<tr><td><strong>Nicht zugeordnet</strong></td><td>${unassigned.length}</td><td>${money(unassignedVol)}</td><td>${money(unassignedProv)}</td><td colspan="2">Bitte Auftrag einer Firma zuordnen</td></tr>`:'';
+  target.innerHTML=`<div class="dashboard-cards"><div class="dash-card blue"><span>Aufträge im Monat</span><strong>${monthOrders.length}</strong><small>${monthValue}</small></div><div class="dash-card dark"><span>Auftragsvolumen</span><strong>${money(totalVolume)}</strong><small>im ausgewählten Monat</small></div><div class="dash-card green"><span>Als bezahlt markiert</span><strong>${money(totalPaid)}</strong><small>je Firma und Monat</small></div><div class="dash-card orange"><span>Provision gesamt</span><strong>${money(totalCommission)}</strong><small>für den ausgewählten Monat</small></div></div><div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Aufträge</th><th>Auftragsvolumen</th><th>Provision 10 %</th><th>Bezahlt?</th><th>Zahlungsdatum</th></tr></thead><tbody>${bodyRows||'<tr><td colspan="6">Keine Firmen angelegt.</td></tr>'}${unassignedRow}</tbody><tfoot><tr><th>Gesamt</th><th>${monthOrders.length}</th><th>${money(totalVolume)}</th><th>${money(totalCommission)}</th><th colspan="2">Offen: ${money(Math.max(0,totalCommission-totalPaid))}</th></tr></tfoot></table></div>`;
+}
+async function saveMonthlyCommissionStatus(companyId,monthStart,value,selectElement){
+  const paid=value==='true';
+  const paymentDate=paid?new Date().toISOString().slice(0,10):null;
+  selectElement.disabled=true;
+  const {error}=await db.from('vermittlung_firmen_provision_monat').upsert({firma_id:companyId,monat:monthStart,bezahlt:paid,zahlungsdatum:paymentDate,aktualisiert_am:new Date().toISOString()},{onConflict:'firma_id,monat'});
+  selectElement.disabled=false;
+  if(error){alert('Zahlungsstatus konnte nicht gespeichert werden: '+error.message);loadMonthlyCommissionReport();return;}
+  toast(paid?'Monatsprovision als bezahlt gespeichert':'Monatsprovision als offen gespeichert');
+  loadMonthlyCommissionReport();
+}
 function renderCompanyCommissionRows(active){
   const byCompany=new Map(companies.map(c=>[c.id,{name:c.firmenname||'Unbenannte Firma',count:0,vol:0,prov:0,paid:0}]));
   const unassigned={name:'Nicht zugeordnet',count:0,vol:0,prov:0,paid:0};
