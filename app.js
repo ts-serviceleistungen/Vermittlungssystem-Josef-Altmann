@@ -83,7 +83,8 @@ function renderAuth(){
     $('#loginView').classList.remove('hidden');
   }
 }
-async function loadBase(){const [c,f,o]=await Promise.all([db.from('vermittlung_kunden').select('*').order('nachname'),db.from('vermittlung_firmen').select('*').order('firmenname'),db.from('vermittlung_auftraege').select('*').order('erstellt_am',{ascending:false})]);customers=c.data||[];companies=f.data||[];orders=o.data||[];}
+let periodAccounts=[];
+async function loadBase(){const [c,f,o,a]=await Promise.all([db.from('vermittlung_kunden').select('*').order('nachname'),db.from('vermittlung_firmen').select('*').order('firmenname'),db.from('vermittlung_auftraege').select('*').order('erstellt_am',{ascending:false}),db.from('vermittlung_auftragsabrechnungen').select('*').order('abrechnungsmonat',{ascending:false})]);customers=c.data||[];companies=f.data||[];orders=o.data||[];periodAccounts=a.error?[]:(a.data||[]);if(a.error&& !String(a.error.message||'').includes('does not exist'))console.warn('Abrechnungsperioden konnten nicht geladen werden:',a.error.message);}
 const GOOGLE_SYNC_URL_KEY='vermittlung_google_sync_url';
 const GOOGLE_SYNC_TOKEN_KEY='vermittlung_google_sync_token';
 function googleSyncUrl(){return localStorage.getItem(GOOGLE_SYNC_URL_KEY)||''}
@@ -259,51 +260,9 @@ function renderCommissions(){
       <div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Aufträge</th><th>Auftragsvolumen</th><th>Provision für uns</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${renderCompanyCommissionRows(active)||'<tr><td colspan="6">Noch keine Firmen angelegt.</td></tr>'}</tbody></table></div>
     </div>
     <div class="panel" style="margin-top:18px">
-      <div class="panel-title-row"><div><span class="eyebrow">MONATSAUSWERTUNG</span><h3>Provisionen je Firma und Monat</h3></div><label>Monat auswählen <input id="commissionMonth" type="month" value="${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}" onchange="loadMonthlyCommissionReport()"></label></div>
-      <p class="muted">Aufträge werden nach Erstellungsdatum zugeordnet. Der Zahlungsstatus wird separat je Firma und Monat gespeichert.</p>
-      <div id="monthlyCompanyReport"><p class="muted">Monatsauswertung wird geladen …</p></div>
-    </div>
-    <div class="panel" style="margin-top:18px">
       <h3>Einzelne Provisionen</h3>
       <div class="table-wrap"><table class="table"><thead><tr><th>Auftrag</th><th>Bereich</th><th>Auftragswert</th><th>Provision 10 %</th><th>Abgerechnet</th><th>Bezahlt</th></tr></thead><tbody>${rows||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>
-    </div>`);
-  loadMonthlyCommissionReport();
-}
-async function loadMonthlyCommissionReport(){
-  const monthInput=document.querySelector('#commissionMonth');
-  const target=document.querySelector('#monthlyCompanyReport');
-  if(!monthInput||!target)return;
-  const monthValue=monthInput.value;
-  if(!monthValue){target.innerHTML='<p class="muted">Bitte einen Monat auswählen.</p>';return;}
-  const monthStart=monthValue+'-01';
-  const nextDate=new Date(monthStart+'T00:00:00');
-  nextDate.setMonth(nextDate.getMonth()+1);
-  const nextMonth=nextDate.getFullYear()+'-'+String(nextDate.getMonth()+1).padStart(2,'0')+'-01';
-  const monthOrders=orders.filter(o=>{if(o.status==='Storniert'||!o.erstellt_am)return false;const created=String(o.erstellt_am).slice(0,10);return created>=monthStart&&created<nextMonth;});
-  const result=await db.from('vermittlung_firmen_provision_monat').select('firma_id,monat,bezahlt,zahlungsdatum').eq('monat',monthStart);
-  if(result.error){target.innerHTML='<p class="message">Monatsstatus konnte nicht geladen werden: '+esc(result.error.message)+'</p>';return;}
-  const statusMap=new Map((result.data||[]).map(x=>[String(x.firma_id),x]));
-  const rows=companies.map(c=>{const list=monthOrders.filter(o=>String(o.ausfuehrende_firma_id||'')===String(c.id));const volume=list.reduce((a,o)=>a+Number(o.auftragswert_netto||0),0);const commission=list.reduce((a,o)=>a+Number(o.provision||0),0);const st=statusMap.get(String(c.id));return {c,list,volume,commission,paid:Boolean(st?.bezahlt),paymentDate:st?.zahlungsdatum||''};}).sort((a,b)=>b.commission-a.commission||String(a.c.firmenname||'').localeCompare(String(b.c.firmenname||''),'de'));
-  const unassigned=monthOrders.filter(o=>!o.ausfuehrende_firma_id||!companies.some(c=>String(c.id)===String(o.ausfuehrende_firma_id)));
-  const totalVolume=monthOrders.reduce((a,o)=>a+Number(o.auftragswert_netto||0),0);
-  const totalCommission=monthOrders.reduce((a,o)=>a+Number(o.provision||0),0);
-  const totalPaid=rows.filter(r=>r.paid).reduce((a,r)=>a+r.commission,0);
-  const bodyRows=rows.map(r=>`<tr style="background:${r.paid?'#ecfdf3':'#fff1f2'}"><td><strong>${esc(r.c.firmenname||'Unbenannte Firma')}</strong></td><td>${r.list.length}</td><td>${money(r.volume)}</td><td><strong>${money(r.commission)}</strong></td><td><select onchange="saveMonthlyCommissionStatus('${r.c.id}','${monthStart}',this.value,this)"><option value="false" ${!r.paid?'selected':''}>Nein</option><option value="true" ${r.paid?'selected':''}>Ja</option></select> <span style="color:${r.paid?'#15803d':'#b91c1c'};font-weight:700">${r.paid?'BEZAHLT':'OFFEN'}</span></td><td>${r.paymentDate?new Date(r.paymentDate+'T00:00:00').toLocaleDateString('de-DE'):'—'}</td></tr>`).join('');
-  const unassignedVol=unassigned.reduce((a,o)=>a+Number(o.auftragswert_netto||0),0);
-  const unassignedProv=unassigned.reduce((a,o)=>a+Number(o.provision||0),0);
-  const unassignedRow=unassigned.length?`<tr><td><strong>Nicht zugeordnet</strong></td><td>${unassigned.length}</td><td>${money(unassignedVol)}</td><td>${money(unassignedProv)}</td><td colspan="2">Bitte Auftrag einer Firma zuordnen</td></tr>`:'';
-  target.innerHTML=`<div class="dashboard-cards"><div class="dash-card blue"><span>Aufträge im Monat</span><strong>${monthOrders.length}</strong><small>${monthValue}</small></div><div class="dash-card dark"><span>Auftragsvolumen</span><strong>${money(totalVolume)}</strong><small>im ausgewählten Monat</small></div><div class="dash-card green"><span>Als bezahlt markiert</span><strong>${money(totalPaid)}</strong><small>je Firma und Monat</small></div><div class="dash-card orange"><span>Provision gesamt</span><strong>${money(totalCommission)}</strong><small>für den ausgewählten Monat</small></div></div><div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Aufträge</th><th>Auftragsvolumen</th><th>Provision 10 %</th><th>Bezahlt?</th><th>Zahlungsdatum</th></tr></thead><tbody>${bodyRows||'<tr><td colspan="6">Keine Firmen angelegt.</td></tr>'}${unassignedRow}</tbody><tfoot><tr><th>Gesamt</th><th>${monthOrders.length}</th><th>${money(totalVolume)}</th><th>${money(totalCommission)}</th><th colspan="2">Offen: ${money(Math.max(0,totalCommission-totalPaid))}</th></tr></tfoot></table></div>`;
-}
-async function saveMonthlyCommissionStatus(companyId,monthStart,value,selectElement){
-  const paid=value==='true';
-  const paymentDate=paid?new Date().toISOString().slice(0,10):null;
-  selectElement.disabled=true;
-  const {error}=await db.from('vermittlung_firmen_provision_monat').upsert({firma_id:companyId,monat:monthStart,bezahlt:paid,zahlungsdatum:paymentDate,aktualisiert_am:new Date().toISOString()},{onConflict:'firma_id,monat'});
-  selectElement.disabled=false;
-  if(error){alert('Zahlungsstatus konnte nicht gespeichert werden: '+error.message);loadMonthlyCommissionReport();return;}
-  toast(paid?'Monatsprovision als bezahlt gespeichert':'Monatsprovision als offen gespeichert');
-  loadMonthlyCommissionReport();
-}
+    </div>`)}
 function renderCompanyCommissionRows(active){
   const byCompany=new Map(companies.map(c=>[c.id,{name:c.firmenname||'Unbenannte Firma',count:0,vol:0,prov:0,paid:0}]));
   const unassigned={name:'Nicht zugeordnet',count:0,vol:0,prov:0,paid:0};
@@ -318,7 +277,47 @@ function renderCompanyCommissionRows(active){
   if(unassigned.count) rows.push(unassigned);
   return rows.map(v=>`<tr><td><strong>${esc(v.name)}</strong></td><td>${v.count}</td><td>${money(v.vol)}</td><td><strong>${money(v.prov)}</strong></td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('');
 }
-function renderReports(){const active=orders.filter(o=>o.status!=='Storniert');const months={};const years={};active.forEach(o=>{const d=new Date(o.erstellt_am);const m=d.toLocaleDateString('de-DE',{month:'2-digit',year:'numeric'});const y=d.getFullYear();for(const [obj,key] of [[months,m],[years,y]]){obj[key]??={count:0,vol:0,prov:0,paid:0};obj[key].count++;obj[key].vol+=Number(o.auftragswert_netto||0);obj[key].prov+=Number(o.provision||0);if(o.provision_bezahlt)obj[key].paid+=Number(o.provision||0)}});const table=(obj)=>`<div class="table-wrap"><table class="table"><thead><tr><th>Zeitraum</th><th>Aufträge</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${Object.entries(obj).sort().reverse().map(([k,v])=>`<tr><td>${k}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('')||'<tr><td colspan="6">Keine Daten.</td></tr>'}</tbody></table></div>`;$('#main').innerHTML=page('Monats- / Jahresabrechnung',`<h3>Monat</h3>${table(months)}<h3 style="margin-top:25px">Jahr</h3>${table(years)}`)}
+function renderReports(){
+  const valid=periodAccounts.filter(a=>a.status!=='Storniert');
+  const months={},years={},companyMonths={};
+  valid.forEach(a=>{
+    const date=String(a.abrechnungsmonat||'').slice(0,10); if(!date)return;
+    const [yy,mm]=date.split('-'); const m=`${mm}/${yy}`, y=yy;
+    for(const [obj,key] of [[months,m],[years,y]]){obj[key]??={count:0,vol:0,prov:0,paid:0};obj[key].count++;obj[key].vol+=Number(a.auftragswert_netto||0);obj[key].prov+=Number(a.provision||0);if(a.bezahlt)obj[key].paid+=Number(a.provision||0);}
+    const firm=companies.find(c=>String(c.id)===String(a.firma_id))?.firmenname||'Nicht zugeordnet';
+    const ck=`${m} · ${firm}`;companyMonths[ck]??={month:m,firm,count:0,vol:0,prov:0,paid:0};
+    companyMonths[ck].count++;companyMonths[ck].vol+=Number(a.auftragswert_netto||0);companyMonths[ck].prov+=Number(a.provision||0);if(a.bezahlt)companyMonths[ck].paid+=Number(a.provision||0);
+  });
+  const table=(obj)=>`<div class="table-wrap"><table class="table"><thead><tr><th>Zeitraum</th><th>Abrechnungen</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${Object.entries(obj).sort((a,b)=>b[0].localeCompare(a[0])).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('')||'<tr><td colspan="6">Keine Abrechnungsdaten. Bitte zuerst die SQL-Einrichtung ausführen.</td></tr>'}</tbody></table></div>`;
+  const rows=valid.slice().sort((a,b)=>String(b.abrechnungsmonat).localeCompare(String(a.abrechnungsmonat))).map(a=>{
+    const o=orders.find(x=>String(x.id)===String(a.auftrag_id)); const firm=companies.find(c=>String(c.id)===String(a.firma_id));
+    const status=a.bezahlt?'Bezahlt':'Offen';
+    return `<tr><td>${esc(String(a.abrechnungsmonat||'').slice(0,7))}</td><td>${esc(o?.auftragsnummer||a.auftrag_id||'—')}</td><td>${esc(firm?.firmenname||'Nicht zugeordnet')}</td><td>${money(a.auftragswert_netto)}</td><td>${money(a.provision)}</td><td><span class="badge status" style="background:${a.bezahlt?'#d8f5df':'#ffe0e0'};color:${a.bezahlt?'#176534':'#9f2020'}">${status}</span></td><td>${a.bezahlt?esc(a.zahlungsdatum||'—'):'—'}</td><td><button class="${a.bezahlt?'secondary':'primary'}" onclick="togglePeriodPaid('${a.id}',${!a.bezahlt})">${a.bezahlt?'Als offen markieren':'Als bezahlt markieren'}</button></td></tr>`;
+  }).join('');
+  $('#main').innerHTML=page('Monats- / Jahresabrechnung',`
+    <div class="panel"><p class="muted">Die Auswertung basiert auf einzelnen Abrechnungszeiträumen. Ein wiederkehrender Auftrag bleibt derselbe Auftrag; jede Periode hat einen eigenen Zahlungsstatus.</p></div>
+    <h3>Monatsauswertung</h3>${table(months)}
+    <h3 style="margin-top:25px">Monatsauswertung je Firma</h3>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Monat</th><th>Firma</th><th>Abrechnungen</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${Object.values(companyMonths).sort((a,b)=>b.month.localeCompare(a.month)||a.firm.localeCompare(b.firm,'de')).map(v=>`<tr><td>${esc(v.month)}</td><td>${esc(v.firm)}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('')||'<tr><td colspan="7">Keine Firmendaten vorhanden.</td></tr>'}</tbody></table></div>
+    <h3 style="margin-top:25px">Jahresauswertung</h3>${table(years)}
+    <div class="panel" style="margin-top:22px"><div class="panel-title-row"><div><h3>Einzelne Abrechnungsperioden</h3><p class="muted">Grün = bezahlt, Rot = offen.</p></div><button class="secondary" onclick="generatePeriodsNow()">Abrechnungen jetzt prüfen</button></div>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Monat</th><th>Auftrag</th><th>Firma</th><th>Auftragswert</th><th>Provision</th><th>Status</th><th>Zahlungsdatum</th><th>Aktion</th></tr></thead><tbody>${rows||'<tr><td colspan="8">Noch keine Abrechnungsperioden. Bitte SQL einrichten und danach „Abrechnungen jetzt prüfen“ wählen.</td></tr>'}</tbody></table></div></div>`);
+}
+async function togglePeriodPaid(id,paid){
+  if(!isAdmin())return;
+  const update={bezahlt:paid,zahlungsdatum:paid?new Date().toISOString().slice(0,10):null,aktualisiert_am:new Date().toISOString()};
+  const {error}=await db.from('vermittlung_auftragsabrechnungen').update(update).eq('id',id);
+  if(error){alert('Zahlungsstatus konnte nicht geändert werden: '+error.message);return;}
+  toast(paid?'Abrechnungsperiode als bezahlt markiert':'Abrechnungsperiode wieder offen');
+  await loadBase();renderReports();
+}
+async function generatePeriodsNow(){
+  if(!isAdmin())return;
+  const {data,error}=await db.rpc('vermittlung_generate_due_periods',{p_actor_email:currentUser.email});
+  if(error){alert('Abrechnungen konnten nicht erzeugt werden. Bitte SQL-Einrichtung und Berechtigungen prüfen: '+error.message);return;}
+  toast(`Abrechnungen geprüft: ${data?.created_count??'fertig'}`);
+  await loadBase();renderReports();
+}
 function modal(content){const el=document.createElement('div');el.className='modal show';el.innerHTML=`<div class="modal-card">${content}</div>`;document.body.appendChild(el);return el}
 function renderOrderEntry(){
   $('#main').innerHTML=page('Auftrag erfassen',`
@@ -349,8 +348,6 @@ function renderOrderEntry(){
   $('#entryOrderForm').onsubmit=async e=>{
     e.preventDefault();
     const fd=new FormData(e.target), d=Object.fromEntries(fd.entries());
-    // Leere HTML-Datumsfelder als NULL senden, nicht als leeren String.
-    for(const k of ['geplanter_beginn','fertigstellung','provisions_rechnungsdatum','provisions_zahlungsdatum'])if(d[k]==='')d[k]=null;
     d.versicherung=d.versicherung===''?null:d.versicherung==='true';
     const {data,error}=await db.rpc('vermittlung_create_order_entry',{p_user_email:currentUser.email,p_data:d});
     if(error){$('#entryOrderMsg').textContent='Auftrag konnte nicht gespeichert werden: '+error.message;return;}
@@ -408,6 +405,12 @@ function newOrder(){
   <label class="full">Objektadresse<input name="objekt_adresse"></label>
   <label>Objekttyp<select name="objekt_typ"><option>Wohnung</option><option>Einfamilienhaus</option><option>Mehrfamilienhaus</option><option>Gewerbe</option><option>Sonstiges</option></select></label>
   <label>Geplanter Beginn<input type="date" name="geplanter_beginn"></label>
+  <div class="full panel"><h3>Wiederkehrender Auftrag</h3><p class="muted">Bei wiederkehrenden Aufträgen bleibt die Auftragsnummer gleich. Die Abrechnung wird je Zeitraum separat geführt.</p>
+  <div class="form-grid">
+    <label>Abrechnungsintervall<select name="wiederholung"><option value="Einmalig">Einmalauftrag</option><option value="Monatlich">Monatlich</option><option value="Vierteljährlich">Vierteljährlich</option><option value="Halbjährlich">Halbjährlich</option><option value="Jährlich">Jährlich</option></select></label>
+    <label>Wiederholung beginnt am<input type="date" name="wiederholung_beginn"></label>
+    <label>Wiederholung endet am (optional)<input type="date" name="wiederholung_ende"></label>
+  </div></div>
   <label class="full">Beschreibung<textarea name="beschreibung"></textarea></label>
   <label>Kostenvoranschlag netto<input type="number" step="0.01" name="kostenvoranschlag_netto" value="0"></label>
   <label>Kostenvoranschlag brutto<input type="number" step="0.01" name="kostenvoranschlag_brutto" value="0"></label>
@@ -428,10 +431,8 @@ function newOrder(){
     btn.disabled=true; msg.textContent='Auftrag wird gespeichert …';
     const fd=new FormData(e.target), d=Object.fromEntries([...fd.entries()].filter(([k])=>k!=='orderFiles'));
     for(const k of ['kunde_id','ausfuehrende_firma_id'])if(!d[k])d[k]=null;
-    // Optionales Datum ohne Eingabe muss als NULL in Supabase gespeichert werden.
-    for(const k of ['geplanter_beginn','fertigstellung','provisions_rechnungsdatum','provisions_zahlungsdatum'])if(d[k]==='')d[k]=null;
     for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto'])d[k]=Number(d[k]||0);
-    d.versicherung=d.versicherung===''?null:d.versicherung==='true'; d.created_by=currentUser.email;
+    d.versicherung=d.versicherung===''?null:d.versicherung==='true'; d.created_by=currentUser.email; d.wiederholung=d.wiederholung||'Einmalig'; d.wiederholung_aktiv=d.wiederholung!=='Einmalig'; d.wiederholung_beginn=d.wiederholung_beginn||d.geplanter_beginn||new Date().toISOString().slice(0,10); d.wiederholung_ende=d.wiederholung_ende||null;
     const {data:created,error}=await db.from('vermittlung_auftraege').insert(d).select('id').single();
     if(error){btn.disabled=false;msg.textContent='Auftrag konnte nicht gespeichert werden: '+error.message;return;}
     let failed=[];
@@ -613,6 +614,24 @@ async function showOrder(id){
         <input type="date" name="geplanter_beginn" value="${esc(o.geplanter_beginn||'')}">
       </label>
 
+      <label>Abrechnungsintervall
+        <select name="wiederholung">
+          ${['Einmalig','Monatlich','Vierteljährlich','Halbjährlich','Jährlich'].map(x=>`<option value="${x}" ${((o.wiederholung||'Einmalig')===x)?'selected':''}>${x==='Einmalig'?'Einmalauftrag':x}</option>`).join('')}
+        </select>
+      </label>
+      <label>Wiederholung beginnt am
+        <input type="date" name="wiederholung_beginn" value="${esc(o.wiederholung_beginn||o.geplanter_beginn||'')}">
+      </label>
+      <label>Wiederholung endet am (optional)
+        <input type="date" name="wiederholung_ende" value="${esc(o.wiederholung_ende||'')}">
+      </label>
+      <label>Wiederholung aktiv
+        <select name="wiederholung_aktiv">
+          <option value="true" ${(o.wiederholung_aktiv===true || (o.wiederholung_aktiv==null && o.wiederholung && o.wiederholung!=='Einmalig'))?'selected':''}>Ja</option>
+          <option value="false" ${(o.wiederholung_aktiv===false || !o.wiederholung || o.wiederholung==='Einmalig')?'selected':''}>Nein</option>
+        </select>
+      </label>
+
       <label>Fertigstellung
         <input type="date" name="fertigstellung" value="${esc(o.fertigstellung||'')}">
       </label>
@@ -707,9 +726,8 @@ async function showOrder(id){
     e.preventDefault();
     const fd=new FormData(e.target), d=Object.fromEntries(fd.entries());
     for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto']) d[k]=Number(d[k]||0);
-    // HTML date inputs liefern bei leerem Feld ""; PostgreSQL DATE erwartet NULL oder ein Datum.
-    for(const k of ['geplanter_beginn','fertigstellung','provisions_rechnungsdatum','provisions_zahlungsdatum']) if(d[k]==='') d[k]=null;
-    for(const k of ['provision_abgerechnet','provision_bezahlt']) d[k]=d[k]==='true';
+    for(const k of ['provision_abgerechnet','provision_bezahlt','wiederholung_aktiv']) if(d[k]!==undefined)d[k]=d[k]==='true';
+    d.wiederholung=d.wiederholung||'Einmalig'; if(d.wiederholung==='Einmalig')d.wiederholung_aktiv=false; d.wiederholung_beginn=d.wiederholung_beginn||d.geplanter_beginn||null; d.wiederholung_ende=d.wiederholung_ende||null;
     d.versicherung=d.versicherung===''?null:d.versicherung==='true';
     d.ausfuehrende_firma_id=d.ausfuehrende_firma_id||null;
     d.updated_at=new Date().toISOString();
