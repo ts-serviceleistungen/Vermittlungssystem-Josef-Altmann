@@ -777,6 +777,10 @@ async function showOrder(id){
   m.querySelector('#detailForm').onsubmit=async e=>{
     e.preventDefault();
     const fd=new FormData(e.target), d=Object.fromEntries(fd.entries());
+    // Leere Datumsfelder als NULL statt als ungueltigen Leerstring an Supabase senden.
+    e.target.querySelectorAll('input[type="date"]').forEach(input=>{
+      if (input.name) d[input.name] = input.value.trim() === '' ? null : input.value;
+    });
     for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto']) d[k]=Number(d[k]||0);
     for(const k of ['provision_abgerechnet','provision_bezahlt','wiederholung_aktiv']) if(d[k]!==undefined)d[k]=d[k]==='true';
     d.wiederholung=d.wiederholung||'Einmalig'; if(d.wiederholung==='Einmalig')d.wiederholung_aktiv=false; d.wiederholung_beginn=d.wiederholung_beginn||d.geplanter_beginn||null; d.wiederholung_ende=d.wiederholung_ende||null;
