@@ -717,7 +717,11 @@ async function showOrder(id){
 
     <div class="panel" style="margin-top:18px">
       <h3>Dokumentation</h3>
-      <p class="muted">Dateien werden beim Anlegen des Auftrags hochgeladen. Die unten aufgeführten Dokumente können beim E-Mail-Versand ausgewählt werden.</p>
+      <p class="muted">Hier kannst du Dokumente zu diesem Auftrag ansehen und weitere Dateien hinzufügen. Die Dokumente können beim E-Mail-Versand ausgewählt werden.</p>
+      ${isAdmin()?`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0">
+        <input id="existingOrderFiles" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,application/pdf,image/jpeg,image/png,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+        <button type="button" class="primary" id="uploadExistingOrderFiles">Dokumente hinzufügen</button>
+      </div><p id="existingOrderUploadMsg" class="muted">Mehrere Dateien möglich, maximal 50 MB je Datei.</p>`:''}
       <div class="table-wrap"><table class="table"><thead><tr><th>Datei</th><th>Typ</th><th>Größe</th><th>Hochgeladen</th><th>Aktion</th></tr></thead>
       <tbody>${(docs.data||[]).map(d=>`<tr><td>${esc(d.dateiname)}</td><td>${esc(d.mime_type||'unbekannt')}</td><td>${(Number(d.dateigroesse||0)/1024/1024).toFixed(2)} MB</td><td>${d.erstellt_am?new Date(d.erstellt_am).toLocaleString('de-DE'):'—'}</td><td><button type="button" class="close" onclick="openOrderDocument('${esc(d.id)}')">Öffnen / Herunterladen</button></td></tr>`).join('')||(docs.error?`<tr><td colspan="4">Dokumente konnten nicht geladen werden. Details stehen in der Browser-Konsole.</td></tr>`:'<tr><td colspan="4">Noch keine Dateien hochgeladen.</td></tr>')}</tbody></table></div>
     </div>
@@ -734,6 +738,41 @@ async function showOrder(id){
       </div>
     </div>
   `);
+
+  if(isAdmin()){
+    const fileInput=m.querySelector('#existingOrderFiles');
+    const uploadBtn=m.querySelector('#uploadExistingOrderFiles');
+    const uploadMsg=m.querySelector('#existingOrderUploadMsg');
+    uploadBtn.addEventListener('click', async ()=>{
+      const files=[...(fileInput?.files||[])];
+      if(!files.length){uploadMsg.textContent='Bitte zuerst mindestens eine Datei auswählen.';return;}
+      const max=50*1024*1024;
+      if(files.some(f=>f.size>max)){uploadMsg.textContent='Mindestens eine Datei ist größer als 50 MB. Bitte kleinere Dateien auswählen.';return;}
+      uploadBtn.disabled=true; fileInput.disabled=true;
+      const failed=[];
+      for(let i=0;i<files.length;i++){
+        const file=files[i];
+        uploadMsg.textContent=`Dokument ${i+1} von ${files.length} wird hochgeladen: ${file.name}`;
+        const uploadForm=new FormData();
+        uploadForm.append('actor_email',currentUser.email);
+        uploadForm.append('order_id',id);
+        uploadForm.append('file',file,file.name);
+        try{
+          const {data:uploadData,error:uploadError}=await db.functions.invoke('upload-order-document',{body:uploadForm});
+          if(uploadError||!uploadData?.ok)failed.push(`${file.name}: ${uploadData?.error||uploadError?.message||'Upload fehlgeschlagen'}`);
+        }catch(err){failed.push(`${file.name}: ${err?.message||'Upload fehlgeschlagen'}`);}
+      }
+      if(failed.length){
+        uploadMsg.textContent=`Upload beendet: ${files.length-failed.length} von ${files.length} Datei(en) erfolgreich.`;
+        alert('Einige Dateien konnten nicht hochgeladen werden:\n\n'+failed.join('\n'));
+        uploadBtn.disabled=false; fileInput.disabled=false;
+      }else{
+        m.remove();
+        showToast(`${files.length} Dokument(e) zum Auftrag hinzugefügt`);
+        await showOrder(id);
+      }
+    });
+  }
 
   m.querySelector('#detailForm').onsubmit=async e=>{
     e.preventDefault();
