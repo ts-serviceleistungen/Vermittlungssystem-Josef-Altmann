@@ -322,31 +322,37 @@ function renderCompanyCommissionRows(active){
   if(unassigned.count) rows.push(unassigned);
   return rows.map(v=>`<tr><td><strong>${esc(v.name)}</strong></td><td>${v.count}</td><td>${money(v.vol)}</td><td><strong>${money(v.prov)}</strong></td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('');
 }
+let reportMonthFilter = '';
 function renderReports(){
   const valid=periodAccounts.filter(a=>a.status!=='Storniert');
   const months={},years={},companyMonths={};
   valid.forEach(a=>{
     const date=String(a.abrechnungsmonat||'').slice(0,10); if(!date)return;
     const [yy,mm]=date.split('-'); const m=`${mm}/${yy}`, y=yy;
-    for(const [obj,key] of [[months,m],[years,y]]){obj[key]??={count:0,vol:0,prov:0,paid:0};obj[key].count++;obj[key].vol+=Number(a.auftragswert_netto||0);obj[key].prov+=Number(a.provision||0);if(a.bezahlt)obj[key].paid+=Number(a.provision||0);}
+    for(const [obj,key] of [[months,date.slice(0,7)],[years,y]]){obj[key]??={count:0,vol:0,prov:0,paid:0};obj[key].count++;obj[key].vol+=Number(a.auftragswert_netto||0);obj[key].prov+=Number(a.provision||0);if(a.bezahlt)obj[key].paid+=Number(a.provision||0);}
     const firm=companies.find(c=>String(c.id)===String(a.firma_id))?.firmenname||'Nicht zugeordnet';
-    const ck=`${m} · ${firm}`;companyMonths[ck]??={month:m,firm,count:0,vol:0,prov:0,paid:0};
+    const ck=`${date.slice(0,7)} · ${firm}`;companyMonths[ck]??={month:date.slice(0,7),firm,count:0,vol:0,prov:0,paid:0};
     companyMonths[ck].count++;companyMonths[ck].vol+=Number(a.auftragswert_netto||0);companyMonths[ck].prov+=Number(a.provision||0);if(a.bezahlt)companyMonths[ck].paid+=Number(a.provision||0);
   });
-  const table=(obj)=>`<div class="table-wrap"><table class="table"><thead><tr><th>Zeitraum</th><th>Abrechnungen</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${Object.entries(obj).sort((a,b)=>b[0].localeCompare(a[0])).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('')||'<tr><td colspan="6">Keine Abrechnungsdaten. Bitte zuerst die SQL-Einrichtung ausführen.</td></tr>'}</tbody></table></div>`;
-  const rows=valid.slice().sort((a,b)=>String(b.abrechnungsmonat).localeCompare(String(a.abrechnungsmonat))).map(a=>{
+  const monthKeys=Object.keys(months).sort((a,b)=>b.localeCompare(a));
+  if(!reportMonthFilter || !months[reportMonthFilter]) reportMonthFilter=monthKeys[0]||new Date().toISOString().slice(0,7);
+  const selected=months[reportMonthFilter]||{count:0,vol:0,prov:0,paid:0};
+  const monthLabel=reportMonthFilter.split('-').reverse().join('/');
+  const monthOptions=monthKeys.map(k=>`<option value="${esc(k)}" ${k===reportMonthFilter?'selected':''}>${esc(k.split('-').reverse().join('/'))}</option>`).join('');
+  const summaryTable=(obj,firstHeading='Zeitraum')=>`<div class="table-wrap"><table class="table"><thead><tr><th>${firstHeading}</th><th>Abrechnungen</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${Object.entries(obj).sort((a,b)=>b[0].localeCompare(a[0])).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('')||'<tr><td colspan="6">Keine Abrechnungsdaten vorhanden.</td></tr>'}</tbody></table></div>`;
+  const oneMonth={}; if(months[reportMonthFilter]) oneMonth[monthLabel]=selected;
+  const firmRows=Object.values(companyMonths).filter(v=>v.month===reportMonthFilter).sort((a,b)=>a.firm.localeCompare(b.firm,'de')).map(v=>`<tr><td>${esc(v.firm)}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('');
+  const rows=valid.filter(a=>String(a.abrechnungsmonat||'').slice(0,7)===reportMonthFilter).slice().sort((a,b)=>String(b.abrechnungsmonat).localeCompare(String(a.abrechnungsmonat))).map(a=>{
     const o=orders.find(x=>String(x.id)===String(a.auftrag_id)); const firm=companies.find(c=>String(c.id)===String(a.firma_id));
     const status=a.bezahlt?'Bezahlt':'Offen';
-    return `<tr><td>${esc(String(a.abrechnungsmonat||'').slice(0,7))}</td><td>${esc(o?.auftragsnummer||a.auftrag_id||'—')}</td><td>${esc(firm?.firmenname||'Nicht zugeordnet')}</td><td>${money(a.auftragswert_netto)}</td><td>${money(a.provision)}</td><td><span class="badge status" style="background:${a.bezahlt?'#d8f5df':'#ffe0e0'};color:${a.bezahlt?'#176534':'#9f2020'}">${status}</span></td><td>${a.bezahlt?esc(a.zahlungsdatum||'—'):'—'}</td><td><button class="${a.bezahlt?'secondary':'primary'}" onclick="togglePeriodPaid('${a.id}',${!a.bezahlt})">${a.bezahlt?'Als offen markieren':'Als bezahlt markieren'}</button></td></tr>`;
+    return `<tr><td>${esc(o?.auftragsnummer||a.auftrag_id||'—')}</td><td>${esc(firm?.firmenname||'Nicht zugeordnet')}</td><td>${money(a.auftragswert_netto)}</td><td>${money(a.provision)}</td><td><span class="badge status" style="background:${a.bezahlt?'#d8f5df':'#ffe0e0'};color:${a.bezahlt?'#176534':'#9f2020'}">${status}</span></td><td>${a.bezahlt?esc(a.zahlungsdatum||'—'):'—'}</td><td><button class="${a.bezahlt?'secondary':'primary'}" onclick="togglePeriodPaid('${a.id}',${!a.bezahlt})">${a.bezahlt?'Als offen markieren':'Als bezahlt markieren'}</button></td></tr>`;
   }).join('');
   $('#main').innerHTML=page('Monats- / Jahresabrechnung',`
-    <div class="panel"><p class="muted">Die Auswertung basiert auf einzelnen Abrechnungszeiträumen. Ein wiederkehrender Auftrag bleibt derselbe Auftrag; jede Periode hat einen eigenen Zahlungsstatus.</p></div>
-    <h3>Monatsauswertung</h3>${table(months)}
-    <h3 style="margin-top:25px">Monatsauswertung je Firma</h3>
-    <div class="table-wrap"><table class="table"><thead><tr><th>Monat</th><th>Firma</th><th>Abrechnungen</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${Object.values(companyMonths).sort((a,b)=>b.month.localeCompare(a.month)||a.firm.localeCompare(b.firm,'de')).map(v=>`<tr><td>${esc(v.month)}</td><td>${esc(v.firm)}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('')||'<tr><td colspan="7">Keine Firmendaten vorhanden.</td></tr>'}</tbody></table></div>
-    <h3 style="margin-top:25px">Jahresauswertung</h3>${table(years)}
-    <div class="panel" style="margin-top:22px"><div class="panel-title-row"><div><h3>Einzelne Abrechnungsperioden</h3><p class="muted">Grün = bezahlt, Rot = offen.</p></div><button class="secondary" onclick="generatePeriodsNow()">Abrechnungen jetzt prüfen</button></div>
-    <div class="table-wrap"><table class="table"><thead><tr><th>Monat</th><th>Auftrag</th><th>Firma</th><th>Auftragswert</th><th>Provision</th><th>Status</th><th>Zahlungsdatum</th><th>Aktion</th></tr></thead><tbody>${rows||'<tr><td colspan="8">Noch keine Abrechnungsperioden. Bitte SQL einrichten und danach „Abrechnungen jetzt prüfen“ wählen.</td></tr>'}</tbody></table></div></div>`);
+    <div class="panel"><div class="panel-title-row"><div><h3>Monat auswählen</h3><p class="muted">Es werden nur die Daten des ausgewählten Monats angezeigt. Die Jahresübersicht bleibt separat darunter.</p></div><div style="min-width:180px"><select id="reportMonthSelect" class="input" onchange="reportMonthFilter=this.value;renderReports()" style="width:100%;padding:10px;border:1px solid #d7dfeb;border-radius:8px;background:#fff">${monthOptions||`<option value="${esc(reportMonthFilter)}">${esc(monthLabel)}</option>`}</select></div></div></div>
+    <div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin:18px 0"><div class="stat-card"><span class="muted">Auftragsvolumen</span><strong>${money(selected.vol)}</strong></div><div class="stat-card"><span class="muted">Provision gesamt</span><strong>${money(selected.prov)}</strong></div><div class="stat-card"><span class="muted">Bereits bezahlt</span><strong>${money(selected.paid)}</strong></div><div class="stat-card"><span class="muted">Noch offen</span><strong>${money(selected.prov-selected.paid)}</strong></div></div>
+    <h3>Firmenübersicht – ${esc(monthLabel)}</h3><div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Abrechnungen</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${firmRows||'<tr><td colspan="6">Für diesen Monat gibt es keine Firmendaten.</td></tr>'}</tbody></table></div>
+    <div class="panel" style="margin-top:22px"><div class="panel-title-row"><div><h3>Einzelabrechnungen – ${esc(monthLabel)}</h3><p class="muted">Grün = bezahlt, Rot = offen.</p></div><button class="secondary" onclick="generatePeriodsNow()">Abrechnungen jetzt prüfen</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Auftrag</th><th>Firma</th><th>Auftragswert</th><th>Provision</th><th>Status</th><th>Zahlungsdatum</th><th>Aktion</th></tr></thead><tbody>${rows||'<tr><td colspan="7">Für diesen Monat gibt es keine Abrechnungsperioden.</td></tr>'}</tbody></table></div></div>
+    <h3 style="margin-top:25px">Jahresauswertung</h3>${summaryTable(years,'Jahr')}`);
 }
 async function togglePeriodPaid(id,paid){
   if(!isAdmin()){
