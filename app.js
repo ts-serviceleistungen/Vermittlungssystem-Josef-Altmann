@@ -31,55 +31,86 @@ function applyRoleUI(){
 
 document.addEventListener('DOMContentLoaded', async ()=>{
   $('#loginForm').addEventListener('submit', login);
-  $('#logoutBtn').addEventListener('click', ()=>{
-    localStorage.removeItem('vermittlung_app_user');
-    currentUser=null;
-    renderAuth();
-  });
+  $('#logoutBtn').addEventListener('click', logout);
   document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
 
-  const saved=localStorage.getItem('vermittlung_app_user');
-  if(saved){
-    try{ currentUser=JSON.parse(saved); }
-    catch{ localStorage.removeItem('vermittlung_app_user'); currentUser=null; }
-  }
-  renderAuth();
+  // Beim Laden ausschließlich eine echte Supabase-Sitzung wiederherstellen.
+  const {data:{session},error}=await db.auth.getSession();
+  if(error) console.error('Supabase-Sitzung konnte nicht gelesen werden:',error.message);
+  if(session?.user) await loadCurrentUser();
+  else { currentUser=null; renderAuth(); }
+
+  // Wenn die Sitzung endet, geschützte Ansicht schließen.
+  db.auth.onAuthStateChange((event, sessionNow)=>{
+    if(event==='SIGNED_OUT' || !sessionNow){
+      currentUser=null;
+      renderAuth();
+    }
+  });
 });
+
+async function loadCurrentUser(){
+  const {data:{user:authUser},error:authError}=await db.auth.getUser();
+  if(authError || !authUser){
+    currentUser=null;
+    renderAuth();
+    return false;
+  }
+  const {data,error}=await db.rpc('vermittlung_current_user');
+  if(error){
+    console.error('Benutzerprofil konnte nicht geladen werden:',error.message);
+    currentUser=null;
+    renderAuth();
+    return false;
+  }
+  const profile=Array.isArray(data)?data[0]:data;
+  if(!profile || !profile.id || !profile.rolle){
+    await db.auth.signOut();
+    currentUser=null;
+    renderAuth();
+    $('#loginMsg').textContent='Für dieses Konto ist kein aktiver App-Benutzer hinterlegt. Bitte Administrator kontaktieren.';
+    return false;
+  }
+  currentUser={id:profile.id,name:profile.name,email:profile.email,rolle:profile.rolle,authUserId:authUser.id};
+  renderAuth();
+  return true;
+}
 
 async function login(e){
   e.preventDefault();
   $('#loginMsg').textContent='';
   const email=$('#email').value.trim();
   const password=$('#password').value;
-
   if(!email||!password){
     $('#loginMsg').textContent='Bitte E-Mail und Passwort eingeben.';
     return;
   }
+  const submit=$('#loginForm').querySelector('button[type="submit"]');
+  if(submit) submit.disabled=true;
+  try{
+    const {error}=await db.auth.signInWithPassword({email,password});
+    if(error){
+      $('#loginMsg').textContent='Anmeldung fehlgeschlagen. Bitte E-Mail und Passwort prüfen.';
+      console.error('Supabase-Anmeldung fehlgeschlagen:',error.message);
+      return;
+    }
+    const ok=await loadCurrentUser();
+    if(!ok) await db.auth.signOut();
+  }catch(err){
+    $('#loginMsg').textContent='Anmeldung derzeit nicht möglich. Bitte Verbindung prüfen.';
+    console.error(err);
+  }finally{
+    if(submit) submit.disabled=false;
+  }
+}
 
-  const {data,error}=await db.rpc('vermittlung_login',{
-    p_email:email,
-    p_password:password
-  });
-
+async function logout(){
+  const {error}=await db.auth.signOut();
   if(error){
-    $('#loginMsg').textContent='Anmeldung fehlgeschlagen: '+error.message;
+    alert('Abmeldung fehlgeschlagen: '+error.message);
     return;
   }
-
-  const user=Array.isArray(data)?data[0]:data;
-  if(!user){
-    $('#loginMsg').textContent='E-Mail oder Passwort ist falsch.';
-    return;
-  }
-
-  currentUser={
-    id:user.id,
-    name:user.name,
-    email:user.email,
-    rolle:user.rolle
-  };
-  localStorage.setItem('vermittlung_app_user',JSON.stringify(currentUser));
+  currentUser=null;
   renderAuth();
 }
 
@@ -96,6 +127,7 @@ function renderAuth(){
     $('#loginView').classList.remove('hidden');
   }
 }
+
 let periodAccounts=[];
 async function loadBase(){const [c,f,o,a]=await Promise.all([db.from('vermittlung_kunden').select('*').order('nachname'),db.from('vermittlung_firmen').select('*').order('firmenname'),db.from('vermittlung_auftraege').select('*').order('erstellt_am',{ascending:false}),db.from('vermittlung_auftragsabrechnungen').select('*').order('abrechnungsmonat',{ascending:false})]);customers=c.data||[];companies=f.data||[];orders=o.data||[];periodAccounts=a.error?[]:(a.data||[]);if(a.error&& !String(a.error.message||'').includes('does not exist'))console.warn('Abrechnungsperioden konnten nicht geladen werden:',a.error.message);}
 const GOOGLE_SYNC_URL_KEY='vermittlung_google_sync_url';
@@ -317,10 +349,18 @@ function renderReports(){
     <div class="table-wrap"><table class="table"><thead><tr><th>Monat</th><th>Auftrag</th><th>Firma</th><th>Auftragswert</th><th>Provision</th><th>Status</th><th>Zahlungsdatum</th><th>Aktion</th></tr></thead><tbody>${rows||'<tr><td colspan="8">Noch keine Abrechnungsperioden. Bitte SQL einrichten und danach „Abrechnungen jetzt prüfen“ wählen.</td></tr>'}</tbody></table></div></div>`);
 }
 async function togglePeriodPaid(id,paid){
-  if(!isAdmin())return;
-  const update={bezahlt:paid,zahlungsdatum:paid?new Date().toISOString().slice(0,10):null,aktualisiert_am:new Date().toISOString()};
-  const {error}=await db.from('vermittlung_auftragsabrechnungen').update(update).eq('id',id);
-  if(error){alert('Zahlungsstatus konnte nicht geändert werden: '+error.message);return;}
+  if(!isAdmin()){
+    alert('Nur Administratoren dürfen Zahlungsstatus ändern.');
+    return;
+  }
+  const {error}=await db.rpc('vermittlung_set_period_paid',{
+    p_period_id:id,
+    p_paid:paid
+  });
+  if(error){
+    alert('Zahlungsstatus konnte nicht geändert werden: '+error.message);
+    return;
+  }
   showToast(paid?'Abrechnungsperiode als bezahlt markiert':'Abrechnungsperiode wieder offen');
   await loadBase();renderReports();
 }
