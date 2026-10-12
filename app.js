@@ -282,6 +282,14 @@ function newCompany(){
   };
 }
 const companyMonthSelections={};
+// Liefert den Monat für Aufträge, für die noch keine Abrechnungsperiode existiert.
+// Vorrang haben der geplante Beginn und der Wiederholungsbeginn; ersatzweise das Erstellungsdatum.
+function orderMonth(o){
+  const raw=o?.wiederholung_beginn||o?.geplanter_beginn||o?.erstellt_am||o?.created_at||'';
+  const value=String(raw).trim();
+  const match=value.match(/^(\d{4})-(\d{2})/);
+  return match?`${match[1]}-${match[2]}`:'';
+}
 function monthLabelFor(key){return key?key.split('-').reverse().join('/'):'—'}
 function periodCompanyId(a){return a?.firma_id??a?.ausfuehrende_firma_id??null}
 function orderHasPeriodForMonth(orderId,month){return periodAccounts.some(a=>String(a.auftrag_id)===String(orderId)&&String(a.abrechnungsmonat||'').slice(0,7)===month&&a.status!=='Storniert')}
