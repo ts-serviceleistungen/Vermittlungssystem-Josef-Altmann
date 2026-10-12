@@ -205,7 +205,9 @@ $('#main').innerHTML=page('Dashboard',`<div class="hero-dashboard"><div><span cl
 <div class="quick-grid"><button onclick="navigate('orders')"><b>${open.length}</b><span>Offene Aufträge</span></button><button onclick="navigate('orders')"><b>${neu}</b><span>Neue Anfragen</span></button><button onclick="navigate('orders')"><b>${kv}</b><span>Kostenvoranschläge</span></button><button onclick="navigate('orders')"><b>${urgent}</b><span>Dringende Aufträge</span></button><button onclick="navigate('customers')"><b>${customers.length}</b><span>Kunden</span></button><button onclick="navigate('companies')"><b>${companies.length}</b><span>Firmen / Subunternehmer</span></button></div>
 <div class="dashboard-panels"><div class="panel"><div class="panel-title-row"><div><span class="eyebrow">AKTUELL</span><h3>Letzte Aufträge</h3></div><button class="secondary" onclick="navigate('orders')">Alle anzeigen →</button></div>${orderTable(orders.slice(0,6))}</div><div class="panel dashboard-side"><span class="eyebrow">SCHNELLZUGRIFF</span><h3>Bereiche</h3><button onclick="navigate('orders')">📋 Aufträge <span>→</span></button><button onclick="navigate('customers')">👤 Kunden <span>→</span></button><button onclick="navigate('companies')">🏢 Firmen <span>→</span></button><button onclick="navigate('reports')">📊 Monats- / Jahresabrechnung <span>→</span></button></div></div>`)}
 
-function orderTable(list){if(!list.length)return '<p class="muted">Keine Aufträge vorhanden.</p>';return `<div class="table-wrap"><table class="table"><thead><tr><th>Nr.</th><th>Bereich</th><th>Ausführende Firma</th><th>Status</th><th>Auftrag</th><th>Wert</th><th>Provision</th><th></th></tr></thead><tbody>${list.map(o=>{const firm=companies.find(c=>String(c.id)===String(o.ausfuehrende_firma_id));return `<tr><td><button class="secondary" onclick="showOrder('${o.id}')">${esc(o.auftragsnummer||'—')}</button></td><td>${esc(o.bereich)}</td><td>${esc(firm?.firmenname||'Noch nicht zugeordnet')}</td><td><span class="badge status">${esc(o.status)}</span></td><td>${esc(o.beschreibung||'—')}</td><td>${money(o.auftragswert_netto)}</td><td>${money(o.provision)}</td><td><button class="delete-btn" onclick="deleteOrder('${o.id}');event.stopPropagation()">Löschen</button></td></tr>`}).join('')}</tbody></table></div>`}
+function customerNameForOrder(o){const c=customers.find(x=>String(x.id)===String(o?.kunde_id));return c?([c.vorname,c.nachname].filter(Boolean).join(' ')||c.firma||'Kunde ohne Namen')+(c.firma&&c.vorname?' · '+c.firma:''):(o?.objekt_kontakt||'Nicht zugeordnet')}
+function companyNameForOrder(o){return companies.find(c=>String(c.id)===String(o?.ausfuehrende_firma_id))?.firmenname||'Noch nicht zugeordnet'}
+function orderTable(list){if(!list.length)return '<p class="muted">Keine Aufträge vorhanden.</p>';return `<div class="table-wrap"><table class="table"><thead><tr><th>Nr.</th><th>Kunde</th><th>Bereich</th><th>Ausführende Firma</th><th>Status</th><th>Auftrag</th><th>Wert</th><th>Provision</th><th></th></tr></thead><tbody>${list.map(o=>`<tr><td><button class="secondary" onclick="showOrder('${o.id}')">${esc(o.auftragsnummer||'—')}</button></td><td>${esc(customerNameForOrder(o))}</td><td>${esc(o.bereich)}</td><td>${esc(companyNameForOrder(o))}</td><td><span class="badge status">${esc(o.status)}</span></td><td>${esc(o.beschreibung||'—')}</td><td>${money(o.auftragswert_netto)}</td><td>${money(o.provision)}</td><td><button class="delete-btn" onclick="deleteOrder('${o.id}');event.stopPropagation()">Löschen</button></td></tr>`).join('')}</tbody></table></div>`}
 function renderOrders(){const body=`<div class="toolbar"><input id="orderSearch" placeholder="Aufträge suchen…" oninput="filterOrders()"><button class="primary" onclick="newOrder()">+ Neuer Auftrag</button></div><div id="ordersTable">${orderTable(orders)}</div>`;$('#main').innerHTML=page('Aufträge',body)}
 function filterOrders(){const q=$('#orderSearch').value.toLowerCase();$('#ordersTable').innerHTML=orderTable(orders.filter(o=>JSON.stringify(o).toLowerCase().includes(q)))}
 async function deleteCustomer(id){if(!confirm('Diesen Kunden wirklich löschen?'))return;const {error}=await db.from('vermittlung_kunden').delete().eq('id',id);if(error){alert('Kunde konnte nicht gelöscht werden: '+error.message);return}showToast('Kunde gelöscht');navigate('customers')}
@@ -323,36 +325,61 @@ function renderCompanyCommissionRows(active){
   return rows.map(v=>`<tr><td><strong>${esc(v.name)}</strong></td><td>${v.count}</td><td>${money(v.vol)}</td><td><strong>${money(v.prov)}</strong></td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('');
 }
 let reportMonthFilter = '';
+function orderMonth(o){const raw=o?.erstellt_am||o?.created_at||o?.geplanter_beginn;return raw?String(raw).slice(0,7):''}
 function renderReports(){
   const valid=periodAccounts.filter(a=>a.status!=='Storniert');
+  const periodMonths=new Set(valid.map(a=>String(a.abrechnungsmonat||'').slice(0,7)).filter(Boolean));
   const months={},years={},companyMonths={};
+  // Orders without a billing period in that month are included as order entries,
+  // so newly created one-off orders do not silently disappear from the monthly overview.
+  const orderOnly=orders.filter(o=>{
+    const m=orderMonth(o); if(!m || o.status==='Storniert') return false;
+    return !valid.some(a=>String(a.auftrag_id)===String(o.id)&&String(a.abrechnungsmonat||'').slice(0,7)===m);
+  });
+  const monthKeysAll=new Set([...periodMonths,...orderOnly.map(orderMonth).filter(Boolean)]);
+  const monthKeys=[...monthKeysAll].sort((a,b)=>b.localeCompare(a));
+  if(!reportMonthFilter || !monthKeysAll.has(reportMonthFilter)) reportMonthFilter=monthKeys[0]||new Date().toISOString().slice(0,7);
+  const monthlyPeriods=valid.filter(a=>String(a.abrechnungsmonat||'').slice(0,7)===reportMonthFilter);
+  const monthlyOrders=orderOnly.filter(o=>orderMonth(o)===reportMonthFilter);
+  const combined=[];
+  monthlyPeriods.forEach(a=>combined.push({kind:'period',period:a,order:orders.find(o=>String(o.id)===String(a.auftrag_id))}));
+  monthlyOrders.forEach(o=>combined.push({kind:'order',period:null,order:o}));
+  const add=(obj,key,item)=>{obj[key]??={count:0,vol:0,prov:0,paid:0};obj[key].count++;obj[key].vol+=Number(item.vol||0);obj[key].prov+=Number(item.prov||0);if(item.paid)obj[key].paid+=Number(item.prov||0)};
   valid.forEach(a=>{
     const date=String(a.abrechnungsmonat||'').slice(0,10); if(!date)return;
-    const [yy,mm]=date.split('-'); const m=`${mm}/${yy}`, y=yy;
-    for(const [obj,key] of [[months,date.slice(0,7)],[years,y]]){obj[key]??={count:0,vol:0,prov:0,paid:0};obj[key].count++;obj[key].vol+=Number(a.auftragswert_netto||0);obj[key].prov+=Number(a.provision||0);if(a.bezahlt)obj[key].paid+=Number(a.provision||0);}
+    const yy=date.slice(0,4), m=date.slice(0,7);
+    add(years,yy,{vol:a.auftragswert_netto,prov:a.provision,paid:a.bezahlt});
     const firm=companies.find(c=>String(c.id)===String(a.firma_id))?.firmenname||'Nicht zugeordnet';
-    const ck=`${date.slice(0,7)} · ${firm}`;companyMonths[ck]??={month:date.slice(0,7),firm,count:0,vol:0,prov:0,paid:0};
+    const ck=`${m} · ${firm}`;companyMonths[ck]??={month:m,firm,count:0,vol:0,prov:0,paid:0};
     companyMonths[ck].count++;companyMonths[ck].vol+=Number(a.auftragswert_netto||0);companyMonths[ck].prov+=Number(a.provision||0);if(a.bezahlt)companyMonths[ck].paid+=Number(a.provision||0);
   });
-  const monthKeys=Object.keys(months).sort((a,b)=>b.localeCompare(a));
-  if(!reportMonthFilter || !months[reportMonthFilter]) reportMonthFilter=monthKeys[0]||new Date().toISOString().slice(0,7);
-  const selected=months[reportMonthFilter]||{count:0,vol:0,prov:0,paid:0};
+  // Include only non-duplicated orders in month/year totals.
+  orderOnly.forEach(o=>{const m=orderMonth(o),y=m.slice(0,4);add(years,y,{vol:o.auftragswert_netto,prov:o.provision,paid:o.provision_bezahlt});});
+  const selected={count:combined.length,vol:0,prov:0,paid:0};
+  combined.forEach(x=>{const a=x.period,o=x.order;selected.vol+=Number(a?.auftragswert_netto??o?.auftragswert_netto??0);selected.prov+=Number(a?.provision??o?.provision??0);if(a?.bezahlt||(!a&&o?.provision_bezahlt))selected.paid+=Number(a?.provision??o?.provision??0)});
+  // Firm summary is based on periods plus order-only entries.
+  const firmMap=new Map();
+  combined.forEach(x=>{const a=x.period,o=x.order;const firm=a?(companies.find(c=>String(c.id)===String(a.firma_id))?.firmenname||'Nicht zugeordnet'):companyNameForOrder(o);const row=firmMap.get(firm)||{firm,count:0,vol:0,prov:0,paid:0};row.count++;row.vol+=Number(a?.auftragswert_netto??o?.auftragswert_netto??0);row.prov+=Number(a?.provision??o?.provision??0);if(a?.bezahlt||(!a&&o?.provision_bezahlt))row.paid+=Number(a?.provision??o?.provision??0);firmMap.set(firm,row)});
   const monthLabel=reportMonthFilter.split('-').reverse().join('/');
   const monthOptions=monthKeys.map(k=>`<option value="${esc(k)}" ${k===reportMonthFilter?'selected':''}>${esc(k.split('-').reverse().join('/'))}</option>`).join('');
-  const summaryTable=(obj,firstHeading='Zeitraum')=>`<div class="table-wrap"><table class="table"><thead><tr><th>${firstHeading}</th><th>Abrechnungen</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${Object.entries(obj).sort((a,b)=>b[0].localeCompare(a[0])).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('')||'<tr><td colspan="6">Keine Abrechnungsdaten vorhanden.</td></tr>'}</tbody></table></div>`;
-  const oneMonth={}; if(months[reportMonthFilter]) oneMonth[monthLabel]=selected;
-  const firmRows=Object.values(companyMonths).filter(v=>v.month===reportMonthFilter).sort((a,b)=>a.firm.localeCompare(b.firm,'de')).map(v=>`<tr><td>${esc(v.firm)}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('');
-  const rows=valid.filter(a=>String(a.abrechnungsmonat||'').slice(0,7)===reportMonthFilter).slice().sort((a,b)=>String(b.abrechnungsmonat).localeCompare(String(a.abrechnungsmonat))).map(a=>{
-    const o=orders.find(x=>String(x.id)===String(a.auftrag_id)); const firm=companies.find(c=>String(c.id)===String(a.firma_id));
-    const status=a.bezahlt?'Bezahlt':'Offen';
-    return `<tr><td>${esc(o?.auftragsnummer||a.auftrag_id||'—')}</td><td>${esc(firm?.firmenname||'Nicht zugeordnet')}</td><td>${money(a.auftragswert_netto)}</td><td>${money(a.provision)}</td><td><span class="badge status" style="background:${a.bezahlt?'#d8f5df':'#ffe0e0'};color:${a.bezahlt?'#176534':'#9f2020'}">${status}</span></td><td>${a.bezahlt?esc(a.zahlungsdatum||'—'):'—'}</td><td><button class="${a.bezahlt?'secondary':'primary'}" onclick="togglePeriodPaid('${a.id}',${!a.bezahlt})">${a.bezahlt?'Als offen markieren':'Als bezahlt markieren'}</button></td></tr>`;
+  const firmRows=[...firmMap.values()].sort((a,b)=>a.firm.localeCompare(b.firm,'de')).map(v=>`<tr><td>${esc(v.firm)}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('');
+  const rows=combined.map(x=>{
+    const a=x.period,o=x.order, firm=a?(companies.find(c=>String(c.id)===String(a.firma_id))?.firmenname||'Nicht zugeordnet'):companyNameForOrder(o);
+    const status=a?(a.bezahlt?'Bezahlt':'Offen'):(o.provision_bezahlt?'Bezahlt':'Auftrag – nicht abgerechnet');
+    const orderNum=o?.auftragsnummer||a?.auftrag_id||'—';
+    const customer=customerNameForOrder(o);
+    const vol=a?.auftragswert_netto??o?.auftragswert_netto??0, prov=a?.provision??o?.provision??0;
+    const statusHtml=a?`<span class="badge status" style="background:${a.bezahlt?'#d8f5df':'#ffe0e0'};color:${a.bezahlt?'#176534':'#9f2020'}">${status}</span>`:`<span class="badge status">${status}</span>`;
+    const action=a?`<button class="${a.bezahlt?'secondary':'primary'}" onclick="togglePeriodPaid('${a.id}',${!a.bezahlt})">${a.bezahlt?'Als offen markieren':'Als bezahlt markieren'}</button>`:'<span class="muted">Noch keine Abrechnungsperiode</span>';
+    return `<tr><td>${esc(orderNum)}</td><td>${esc(customer)}</td><td>${esc(firm)}</td><td>${money(vol)}</td><td>${money(prov)}</td><td>${statusHtml}</td><td>${a&&a.bezahlt?esc(a.zahlungsdatum||'—'):'—'}</td><td>${action}</td></tr>`;
   }).join('');
+  const summaryTable=(obj,firstHeading='Jahr')=>`<div class="table-wrap"><table class="table"><thead><tr><th>${firstHeading}</th><th>Einträge</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${Object.entries(obj).sort((a,b)=>b[0].localeCompare(a[0])).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.count}</td><td>${money(v.vol)}</td><td>${money(v.prov)}</td><td>${money(v.paid)}</td><td>${money(v.prov-v.paid)}</td></tr>`).join('')||'<tr><td colspan="6">Keine Daten vorhanden.</td></tr>'}</tbody></table></div>`;
   $('#main').innerHTML=page('Monats- / Jahresabrechnung',`
-    <div class="panel"><div class="panel-title-row"><div><h3>Monat auswählen</h3><p class="muted">Es werden nur die Daten des ausgewählten Monats angezeigt. Die Jahresübersicht bleibt separat darunter.</p></div><div style="min-width:180px"><select id="reportMonthSelect" class="input" onchange="reportMonthFilter=this.value;renderReports()" style="width:100%;padding:10px;border:1px solid #d7dfeb;border-radius:8px;background:#fff">${monthOptions||`<option value="${esc(reportMonthFilter)}">${esc(monthLabel)}</option>`}</select></div></div></div>
-    <div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin:18px 0"><div class="stat-card"><span class="muted">Auftragsvolumen</span><strong>${money(selected.vol)}</strong></div><div class="stat-card"><span class="muted">Provision gesamt</span><strong>${money(selected.prov)}</strong></div><div class="stat-card"><span class="muted">Bereits bezahlt</span><strong>${money(selected.paid)}</strong></div><div class="stat-card"><span class="muted">Noch offen</span><strong>${money(selected.prov-selected.paid)}</strong></div></div>
-    <h3>Firmenübersicht – ${esc(monthLabel)}</h3><div class="table-wrap"><table class="table"><thead><tr><th>Firma</th><th>Abrechnungen</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${firmRows||'<tr><td colspan="6">Für diesen Monat gibt es keine Firmendaten.</td></tr>'}</tbody></table></div>
-    <div class="panel" style="margin-top:22px"><div class="panel-title-row"><div><h3>Einzelabrechnungen – ${esc(monthLabel)}</h3><p class="muted">Grün = bezahlt, Rot = offen.</p></div><button class="secondary" onclick="generatePeriodsNow()">Abrechnungen jetzt prüfen</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Auftrag</th><th>Firma</th><th>Auftragswert</th><th>Provision</th><th>Status</th><th>Zahlungsdatum</th><th>Aktion</th></tr></thead><tbody>${rows||'<tr><td colspan="7">Für diesen Monat gibt es keine Abrechnungsperioden.</td></tr>'}</tbody></table></div></div>
-    <h3 style="margin-top:25px">Jahresauswertung</h3>${summaryTable(years,'Jahr')}`);
+    <div class="panel"><div class="panel-title-row"><div><h3>Monat auswählen</h3><p class="muted">Nur der ausgewählte Monat wird angezeigt. Aufträge ohne Abrechnungsperiode erscheinen ebenfalls, sind aber als noch nicht abgerechnet gekennzeichnet.</p></div><div style="min-width:180px"><select id="reportMonthSelect" class="input" onchange="reportMonthFilter=this.value;renderReports()" style="width:100%;padding:10px;border:1px solid #d7dfeb;border-radius:8px;background:#fff">${monthOptions||`<option value="${esc(reportMonthFilter)}">${esc(monthLabel)}</option>`}</select></div></div></div>
+    <div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0"><div class="stat-card"><span class="muted">Auftragsvolumen</span><strong>${money(selected.vol)}</strong></div><div class="stat-card"><span class="muted">Provision gesamt</span><strong>${money(selected.prov)}</strong></div><div class="stat-card"><span class="muted">Bereits bezahlt</span><strong>${money(selected.paid)}</strong></div><div class="stat-card"><span class="muted">Noch offen</span><strong>${money(selected.prov-selected.paid)}</strong></div></div>
+    <details class="panel" style="margin-bottom:16px"><summary style="cursor:pointer;font-weight:700;padding:4px 0">Firmenübersicht anzeigen (${combined.length} Einträge)</summary><div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Firma</th><th>Einträge</th><th>Auftragsvolumen</th><th>Provision</th><th>Bezahlt</th><th>Offen</th></tr></thead><tbody>${firmRows||'<tr><td colspan="6">Keine Firmendaten.</td></tr>'}</tbody></table></div></details>
+    <div class="panel"><div class="panel-title-row"><div><h3>Aufträge und Abrechnungen – ${esc(monthLabel)}</h3><p class="muted">Kunde und ausführende Firma stehen direkt beim Auftrag. Aufträge ohne Abrechnungsperiode werden nicht als bezahlt/offen verbucht, bis eine Periode angelegt wurde.</p></div><button class="secondary" onclick="generatePeriodsNow()">Abrechnungen prüfen</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Auftrag</th><th>Kunde</th><th>Firma</th><th>Auftragswert</th><th>Provision</th><th>Status</th><th>Zahlungsdatum</th><th>Aktion</th></tr></thead><tbody>${rows||'<tr><td colspan="8">Für diesen Monat gibt es keine Einträge.</td></tr>'}</tbody></table></div></div>
+    <details style="margin-top:18px"><summary style="cursor:pointer;font-weight:700;padding:8px 0">Jahresauswertung anzeigen</summary>${summaryTable(years,'Jahr')}</details>`);
 }
 async function togglePeriodPaid(id,paid){
   if(!isAdmin()){
