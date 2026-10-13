@@ -396,19 +396,43 @@ function renderOrderEntry(){
         <label>Schadennummer<input name="schadennummer"></label>
         <label>Versicherungsgesellschaft<input name="versicherungsgesellschaft"></label>
         <label class="full">Notizen<textarea name="notizen"></textarea></label>
-        <div class="full actions"><button class="primary">Auftrag speichern</button></div>
+        <div class="full panel"><h3>Dokumente hochladen</h3><p class="muted">Du kannst zum Auftrag passende Fotos und Dokumente auswählen (PDF, JPG, PNG, WebP, Word oder Excel; maximal 50 MB je Datei).</p><input id="entryOrderFiles" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,application/pdf,image/jpeg,image/png,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"><p id="entryOrderFilesInfo" class="muted">Noch keine Dateien ausgewählt.</p></div>
+        <div class="full actions"><button class="primary" id="entryOrderSaveBtn">Auftrag speichern</button></div>
       </form>
       <div id="entryOrderMsg" class="message"></div>
     </div>`);
+  const fileInput=$('#entryOrderFiles');
+  fileInput.addEventListener('change',()=>{const fs=[...fileInput.files];$('#entryOrderFilesInfo').textContent=fs.length?fs.map(f=>`${f.name} (${(f.size/1024/1024).toFixed(2)} MB)`).join(' · '):'Noch keine Dateien ausgewählt.';});
   $('#entryOrderForm').onsubmit=async e=>{
     e.preventDefault();
+    const btn=$('#entryOrderSaveBtn'), msg=$('#entryOrderMsg'), files=[...fileInput.files];
+    const max=50*1024*1024;
+    if(files.some(f=>f.size>max)){alert('Mindestens eine Datei ist größer als 50 MB. Bitte kleinere Dateien auswählen.');return;}
+    btn.disabled=true; msg.textContent='Auftrag wird gespeichert …';
     const fd=new FormData(e.target), d=Object.fromEntries(fd.entries());
+    delete d.entryOrderFiles;
     d.versicherung=d.versicherung===''?null:d.versicherung==='true';
     const {data,error}=await db.rpc('vermittlung_create_order_entry',{p_user_email:currentUser.email,p_data:d});
-    if(error){$('#entryOrderMsg').textContent='Auftrag konnte nicht gespeichert werden: '+error.message;return;}
-    e.target.reset();
-    $('#entryOrderMsg').textContent='Auftrag wurde erfolgreich erfasst.';
-    showToast('Auftrag gespeichert');
+    if(error){btn.disabled=false;msg.textContent='Auftrag konnte nicht gespeichert werden: '+error.message;return;}
+    // Die RPC kann je nach SQL-Definition eine UUID, ein Objekt oder eine Zeile zurückgeben.
+    const result=Array.isArray(data)?data[0]:data;
+    const orderId=typeof result==='string'?result:(result?.id||result?.order_id||result?.auftrag_id);
+    if(files.length&&!orderId){
+      btn.disabled=false;
+      msg.textContent='Auftrag wurde erfasst, aber die RPC hat keine Auftrags-ID zurückgegeben. Die Dateien wurden nicht hochgeladen. Bitte Administrator kontaktieren.';
+      showToast('Auftrag gespeichert; Upload benötigt die Auftrags-ID');
+      return;
+    }
+    const failed=[];
+    for(let i=0;i<files.length;i++){
+      const file=files[i]; msg.textContent=`Dokument ${i+1} von ${files.length} wird hochgeladen: ${file.name}`;
+      const uploadForm=new FormData(); uploadForm.append('actor_email',currentUser.email); uploadForm.append('order_id',orderId); uploadForm.append('file',file,file.name);
+      const {data:uploadData,error:uploadError}=await db.functions.invoke('upload-order-document',{body:uploadForm});
+      if(uploadError||!uploadData?.ok)failed.push(`${file.name}: ${uploadData?.error||uploadError?.message||'Upload fehlgeschlagen'}`);
+    }
+    e.target.reset(); $('#entryOrderFilesInfo').textContent='Noch keine Dateien ausgewählt.'; btn.disabled=false;
+    if(failed.length){msg.textContent='Auftrag gespeichert. Einige Dateien konnten nicht hochgeladen werden: '+failed.join(' · ');showToast('Auftrag gespeichert; Upload teilweise fehlgeschlagen');}
+    else {msg.textContent=files.length?`Auftrag und ${files.length} Dokument(e) erfolgreich gespeichert.`:'Auftrag wurde erfolgreich erfasst.';showToast(files.length?`Auftrag und ${files.length} Dokument(e) gespeichert`:'Auftrag gespeichert');}
   };
 }
 
