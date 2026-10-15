@@ -24,7 +24,8 @@ function isExternalCompany(){return currentUser?.rolle==='Externe Firma' && !!cu
 function canPage(page){return isAdmin() || (isEntryUser() && page==='order-entry') || (isExternalCompany() && page==='company-portal');}
 function applyRoleUI(){
   let n=document.querySelector('.nav[data-page="company-portal"]');if(!n){n=document.createElement('button');n.className='nav';n.dataset.page='company-portal';n.textContent='Meine Aufträge';document.querySelector('.sidebar')?.appendChild(n);n.onclick=()=>navigate('company-portal');}
-  n.classList.toggle('hidden',!isExternalCompany());document.querySelectorAll('.admin-only').forEach(b=>b.classList.toggle('hidden',!isAdmin()));
+  let review=document.querySelector('.nav[data-page="company-reviews"]');if(!review){review=document.createElement('button');review.className='nav';review.dataset.page='company-reviews';review.textContent='Abschlussprüfung';document.querySelector('.sidebar')?.appendChild(review);review.onclick=()=>navigate('company-reviews');}
+  n.classList.toggle('hidden',!isExternalCompany());review.classList.toggle('hidden',!isAdmin());document.querySelectorAll('.admin-only').forEach(b=>b.classList.toggle('hidden',!isAdmin()));
   document.querySelectorAll('.nav').forEach(b=>{const ok=(isAdmin()&&b.dataset.page!=='reports')||(isEntryUser()&&b.dataset.page==='order-entry')||(isExternalCompany()&&b.dataset.page==='company-portal');b.classList.toggle('hidden',!ok);});
 }
 
@@ -135,6 +136,37 @@ function renderAuth(){
 }
 
 
+
+async function renderCompanyReviews(){
+ const {data:pending,error}=await db.from('vermittlung_auftraege').select('id,auftragsnummer,bereich,status,beschreibung,objekt_adresse,geplanter_beginn,ausfuehrende_firma_id').eq('status','Abschluss gemeldet').order('updated_at',{ascending:false});
+ if(error){$('#main').innerHTML=page('Abschlussprüfung',\`<div class="panel"><p class="message">\${esc(error.message)}</p></div>\`);return;}
+ const items=await Promise.all((pending||[]).map(async o=>{
+  const [company,messages,photos]=await Promise.all([
+   db.from('vermittlung_firmen').select('id,firmenname,email,telefon').eq('id',o.ausfuehrende_firma_id).maybeSingle(),
+   db.from('vermittlung_firmen_auftragsmeldungen').select('id,meldungstyp,nachricht,erstellt_am').eq('auftrag_id',o.id).order('erstellt_am',{ascending:false}),
+   db.from('vermittlung_firmen_auftragsfotos').select('id,dateiname,storage_pfad,fotoart,erstellt_am').eq('auftrag_id',o.id).order('erstellt_am',{ascending:false})
+  ]);
+  const links=await Promise.all((photos.data||[]).map(async p=>{const {data}=await db.storage.from('vermittlung-firmenfotos').createSignedUrl(p.storage_pfad,600);return {p,url:data?.signedUrl||null};}));
+  const hasCompletion=(photos.data||[]).some(p=>p.fotoart==='Abschluss');
+  return \`<section class="panel" style="margin-bottom:16px"><div class="panel-title-row"><div><span class="eyebrow">\${esc(o.auftragsnummer||'Auftrag')}</span><h3>\${esc(o.bereich||'Auftrag')}</h3></div><span class="badge status">\${esc(o.status)}</span></div>
+   <p><strong>Firma:</strong> \${esc(company.data?.firmenname||'Unbekannte Firma')} · \${esc(company.data?.email||'')}</p><p><strong>Objekt:</strong> \${esc(o.objekt_adresse||'Keine Adresse')} </p><p>\${esc(o.beschreibung||'')}</p>
+   <h4>Abschlussfotos \${hasCompletion?'':'— fehlen'}</h4><div style="display:flex;gap:10px;flex-wrap:wrap">\${links.map(({p,url})=>url?\`<a href="\${esc(url)}" target="_blank" rel="noopener" class="secondary" style="padding:8px 10px;border-radius:8px">\${esc(p.dateiname)} · \${esc(p.fotoart)}</a>\`:\`<span>\${esc(p.dateiname)} (nicht verfügbar)</span>\`).join('')||'<span class="muted">Keine Fotos hochgeladen.</span>'}</div>
+   <h4>Verlauf</h4>\${(messages.data||[]).map(m=>\`<div style="padding:8px 0;border-bottom:1px solid #e2e8f0"><strong>\${esc(m.meldungstyp)}</strong><p>\${esc(m.nachricht)}</p><small class="muted">\${m.erstellt_am?new Date(m.erstellt_am).toLocaleString('de-DE'):'—'}</small></div>\`).join('')||'<p class="muted">Keine Meldungen.</p>'}
+   <form class="company-review-form" data-order="\${esc(o.id)}" style="display:grid;gap:10px;margin-top:14px"><label>Rückmeldung an die Firma<textarea name="nachricht" maxlength="5000" placeholder="Optional: Hinweise oder Begründung"></textarea></label><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="primary" type="button" data-review-status="Abgeschlossen" \${hasCompletion?'':'disabled'}>Abschluss freigeben</button><button class="secondary" type="button" data-review-status="Nachbesserung erforderlich">Nachbesserung verlangen</button></div>\${hasCompletion?'':'<small class="muted">Freigabe ist erst möglich, wenn ein Abschlussfoto vorliegt.</small>'}</form>
+  </section>\`;
+ }));
+ $('#main').innerHTML=page('Abschlussprüfung',\`<div class="panel"><h3>Offene Abschlussmeldungen</h3><p class="muted">Prüfe die Fotos und den Verlauf, bevor du den Auftrag freigibst.</p><strong>\${(pending||[]).length} zur Prüfung</strong></div>\${items.join('')||'<div class="panel"><p>Aktuell liegen keine Abschlussmeldungen vor.</p></div>'}\`);
+ document.querySelectorAll('.company-review-form button[data-review-status]').forEach(btn=>btn.addEventListener('click',async()=>{
+  const form=btn.closest('form'),id=form.dataset.order,status=btn.dataset.reviewStatus,note=form.querySelector('[name="nachricht"]').value;
+  if(status==='Abgeschlossen'&&!confirm('Abschluss wirklich freigeben?'))return;
+  if(status==='Nachbesserung erforderlich'&&!confirm('Nachbesserung anfordern und Auftrag zurückgeben?'))return;
+  btn.disabled=true;
+  const {data,error}=await db.rpc('vermittlung_admin_abschluss_pruefen',{p_auftrag_id:id,p_status:status,p_nachricht:note});
+  if(error||!data?.ok){alert(error?.message||data?.error||'Prüfung fehlgeschlagen.');btn.disabled=false;return;}
+  showToast(status==='Abgeschlossen'?'Abschluss freigegeben':'Nachbesserung angefordert');await renderCompanyReviews();
+ }));
+}
+
 async function renderExternalCompanyPortal(){
  const {data:rows,error}=await db.rpc('vermittlung_firma_auftraege');
  if(error){$('#main').innerHTML=page('Meine Aufträge',`<div class="panel"><h3>Aufträge konnten nicht geladen werden</h3><p class="message">${esc(error.message)}</p></div>`);return;}
@@ -220,7 +252,7 @@ async function navigate(page){
   if(isEntryUser()){renderOrderEntry();return;}
   if(isExternalCompany()){await renderExternalCompanyPortal();return;}
   await loadBase();
-  ({dashboard:renderDashboard,orders:renderOrders,customers:renderCustomers,companies:renderCompanies,finance:renderCompanyFinance,commissions:renderCompanyFinance,reports:renderCompanyFinance,google:renderGoogle,settings:renderSettings}[page]||renderDashboard)();
+  ({dashboard:renderDashboard,orders:renderOrders,customers:renderCustomers,companies:renderCompanies,finance:renderCompanyFinance,commissions:renderCompanyFinance,reports:renderCompanyFinance,google:renderGoogle,settings:renderSettings,'company-reviews':renderCompanyReviews}[page]||renderDashboard)();
 }
 function page(title,body,actions=''){return `<div class="page"><div class="page-head"><h2>${title}</h2><div>${actions}</div></div>${body}</div>`}
 function renderDashboard(){
