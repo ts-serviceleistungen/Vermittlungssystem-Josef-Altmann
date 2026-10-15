@@ -242,7 +242,7 @@ async function syncGoogle(){
   }catch(e){alert('Google-Synchronisierung konnte nicht gestartet werden: '+e.message)}
 }
 
-async function navigate(page){
+async async function navigate(page){
   if(page==='commissions'||page==='reports') page='finance';
   if(isEntryUser()) page='order-entry';
   if(isExternalCompany()) page='company-portal';
