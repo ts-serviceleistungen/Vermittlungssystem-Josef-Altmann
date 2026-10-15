@@ -46,3 +46,8 @@ input,select,textarea{font-size:16px;}
   .quick-grid{grid-template-columns:minmax(0,1fr)}
   .brand strong{font-size:12px}
 }
+
+/* Auftragsnummern auch auf schmalen Handybildschirmen lesbar halten */
+.table td:first-child{min-width:124px;white-space:nowrap;}
+.table td:first-child button{display:inline-flex;align-items:center;justify-content:center;width:max-content;min-width:96px;max-width:none;white-space:nowrap;word-break:normal;overflow-wrap:normal;flex-shrink:0;}
+@media(max-width:650px){.table td:first-child{min-width:132px;padding-left:12px;padding-right:12px}.table td:first-child button{font-size:14px;padding:10px 12px;}}
