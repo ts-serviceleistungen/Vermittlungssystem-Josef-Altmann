@@ -1,6 +1,6 @@
-const CACHE = 'vermittlungssystem-v2';
+const CACHE = 'vermittlungssystem-v3';
 const APP_SHELL = [
-  './', './index.html', './style.css', './app.js', './config.js', './manifest.json',
+  './', './index.html', './style.css', './app.js?v=a39de07', './config.js', './manifest.json',
   './icon-192.png', './icon-512.png'
 ];
 
