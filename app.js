@@ -481,11 +481,25 @@ async function loadAppUsers(){
 function newAppUser(){
   const m=modal(`<h2>Benutzer anlegen</h2><form id="appUserForm" class="form-grid">
     <label>Name<input name="name" required></label><label>E-Mail<input name="email" type="email" required></label>
-    <label>Passwort<input name="password" type="password" minlength="8" required placeholder="mindestens 8 Zeichen"></label>
-    <label>Rolle<select name="rolle"><option value="Auftragserfassung">Auftragserfassung</option><option value="Administrator">Administrator</option></select></label>
+    <label>Passwort<input name="password" type="password" minlength="12" required placeholder="mindestens 12 Zeichen"></label>
+    <label>Rolle<select name="rolle" id="newUserRole"><option value="Auftragserfassung">Auftragserfassung</option><option value="Administrator">Administrator</option><option value="Externe Firma">Externe Firma</option></select></label>
+    <label class="full hidden" id="newUserCompanyWrap">Zugeordnete Firma<select name="firma_id" id="newUserCompany"><option value="">Firma auswählen</option></select></label>
     <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Benutzer speichern</button></div>
   </form>`);
-  m.querySelector('form').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await db.rpc('vermittlung_admin_create_user',{p_actor_email:currentUser.email,p_name:d.name,p_email:d.email,p_password:d.password,p_rolle:d.rolle});if(error){alert(error.message);return}m.remove();showToast('Benutzer angelegt');loadAppUsers();};
+  const role=m.querySelector('#newUserRole'),wrap=m.querySelector('#newUserCompanyWrap'),firm=m.querySelector('#newUserCompany');
+  firm.innerHTML='<option value="">Firma auswählen</option>'+companies.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.firmenname)+'</option>').join('');
+  role.addEventListener('change',()=>{const ext=role.value==='Externe Firma';wrap.classList.toggle('hidden',!ext);firm.required=ext;});
+  m.querySelector('form').onsubmit=async e=>{
+    e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());
+    if(d.rolle==='Externe Firma'){
+      const {data,error}=await db.functions.invoke('admin-create-app-user',{body:{name:d.name,email:d.email,password:d.password,rolle:d.rolle,firma_id:d.firma_id}});
+      if(error||!data?.ok){alert(data?.error||error?.message||'Benutzer konnte nicht angelegt werden.');return;}
+    }else{
+      const {error}=await db.rpc('vermittlung_admin_create_user',{p_actor_email:currentUser.email,p_name:d.name,p_email:d.email,p_password:d.password,p_rolle:d.rolle});
+      if(error){alert(error.message);return;}
+    }
+    m.remove();showToast('Benutzer angelegt');loadAppUsers();
+  };
 }
 function editAppUser(id,name,email,rolle,aktiv){
   const m=modal(`<h2>Benutzer bearbeiten</h2><form id="editAppUserForm" class="form-grid">
