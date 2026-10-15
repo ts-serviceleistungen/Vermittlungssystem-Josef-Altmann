@@ -1,0 +1,27 @@
+name: Firmenportal Build und Paket
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  check-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+      - name: JavaScript Syntax prüfen
+        run: node --check app.js
+      - name: Paket erstellen
+        run: |
+          mkdir -p dist
+          zip -r dist/Vermittlungssystem-Josef-Altmann-Firmenportal.zip             index.html app.js style.css config.js manifest.json sw.js icons             supabase/migrations supabase/functions             -x '*/.DS_Store'
+      - name: ZIP als GitHub-Artefakt veröffentlichen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vermittlungssystem-Josef-Altmann-Firmenportal
+          path: dist/Vermittlungssystem-Josef-Altmann-Firmenportal.zip
+          if-no-files-found: error
+          retention-days: 14
