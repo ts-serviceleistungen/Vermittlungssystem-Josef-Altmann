@@ -71,7 +71,7 @@ begin
  return query select u.id,u.name,u.email,u.rolle,u.aktiv,u.created_at from public.vermittlung_benutzer u order by u.name;
 end $$;
 
-create or replace function public.vermittlung_admin_create_user(p_actor_email text,p_name text,p_email text,p_password text,p_rolle text)
+create or replace function public.vermittlung_admin_create_user(p_actor_email text,p_name text,p_email text,p_password text,p_rolle text default 'Auftragserfassung')
 returns jsonb language plpgsql security definer set search_path=public,extensions,pg_temp
 as $$
 declare v_id uuid;
