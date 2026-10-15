@@ -137,6 +137,7 @@ function renderAuth(){
 
 
 
+// Administrative Abschlussprüfung: nur offene Abschlussmeldungen werden angezeigt.
 async function renderCompanyReviews(){
  const {data:pending,error}=await db.from('vermittlung_auftraege').select('id,auftragsnummer,bereich,status,beschreibung,objekt_adresse,geplanter_beginn,ausfuehrende_firma_id').eq('status','Abschluss gemeldet').order('updated_at',{ascending:false});
  if(error){$('#main').innerHTML=page('Abschlussprüfung',\`<div class="panel"><p class="message">\${esc(error.message)}</p></div>\`);return;}
