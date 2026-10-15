@@ -512,6 +512,9 @@ function editAppUser(id,name,email,rolle,aktiv){
   </form>`);
   const roleSelect=m.querySelector('#editUserRole'),wrap=m.querySelector('#editUserCompanyWrap'),firm=m.querySelector('#editUserCompany');
   firm.innerHTML='<option value="">Firma auswählen</option>'+companies.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.firmenname)+'</option>').join('');
+  if(rolle==='Externe Firma'){
+    db.rpc('vermittlung_admin_get_user_firma',{p_user_id:id}).then(({data,error})=>{if(!error&&data)firm.value=data;});
+  }
   const refreshFirm=()=>{const ext=roleSelect.value==='Externe Firma';wrap.classList.toggle('hidden',!ext);firm.required=ext;};
   roleSelect.addEventListener('change',refreshFirm);refreshFirm();
   m.querySelector('form').onsubmit=async e=>{
