@@ -20,13 +20,12 @@ const ADMIN_ROLE='Administrator';
 const ENTRY_ROLE='Auftragserfassung';
 function isAdmin(){return currentUser?.rolle===ADMIN_ROLE;}
 function isEntryUser(){return currentUser?.rolle===ENTRY_ROLE;}
-function canPage(page){return isAdmin() || (isEntryUser() && page==='order-entry');}
+function isExternalCompany(){return currentUser?.rolle==='Externe Firma' && !!currentUser?.firma_id;}
+function canPage(page){return isAdmin() || (isEntryUser() && page==='order-entry') || (isExternalCompany() && page==='company-portal');}
 function applyRoleUI(){
-  document.querySelectorAll('.admin-only').forEach(b=>b.classList.toggle('hidden',!isAdmin()));
-  document.querySelectorAll('.nav').forEach(b=>{
-    const allowed=(isAdmin() && b.dataset.page!=='reports') || (isEntryUser() && b.dataset.page==='order-entry');
-    b.classList.toggle('hidden',!allowed);
-  });
+  let n=document.querySelector('.nav[data-page="company-portal"]');if(!n){n=document.createElement('button');n.className='nav';n.dataset.page='company-portal';n.textContent='Meine Aufträge';document.querySelector('.sidebar')?.appendChild(n);n.onclick=()=>navigate('company-portal');}
+  n.classList.toggle('hidden',!isExternalCompany());document.querySelectorAll('.admin-only').forEach(b=>b.classList.toggle('hidden',!isAdmin()));
+  document.querySelectorAll('.nav').forEach(b=>{const ok=(isAdmin()&&b.dataset.page!=='reports')||(isEntryUser()&&b.dataset.page==='order-entry')||(isExternalCompany()&&b.dataset.page==='company-portal');b.classList.toggle('hidden',!ok);});
 }
 
 document.addEventListener('DOMContentLoaded', async ()=>{
@@ -69,6 +68,7 @@ async function loadCurrentUser(){
     return false;
   }
   const profile=Array.isArray(data)?data[0]:data;
+  const {data:extraProfile,error:extraError}=await db.rpc('vermittlung_current_profile');
   if(!profile || !profile.id || !profile.rolle){
     await db.auth.signOut();
     currentUser=null;
@@ -76,7 +76,8 @@ async function loadCurrentUser(){
     $('#loginMsg').textContent='Für dieses Konto ist kein aktiver App-Benutzer hinterlegt. Bitte Administrator kontaktieren.';
     return false;
   }
-  currentUser={id:profile.id,name:profile.name,email:profile.email,rolle:profile.rolle,authUserId:authUser.id};
+  currentUser={id:profile.id,name:profile.name,email:profile.email,rolle:profile.rolle,authUserId:authUser.id,firma_id:extraError?null:extraProfile?.firma_id||null};
+  if(currentUser.rolle==='Externe Firma'&&!currentUser.firma_id){await db.auth.signOut();currentUser=null;renderAuth();$('#loginMsg').textContent='Für dieses Konto fehlt die Firmenzuordnung. Bitte Administrator kontaktieren.';return false;}
   renderAuth();
   return true;
 }
@@ -126,11 +127,34 @@ function renderAuth(){
     $('#userName').textContent=(currentUser.name||currentUser.email||'') + (currentUser.rolle ? ' · '+currentUser.rolle : '');
     applyRoleUI();
     const savedPage=localStorage.getItem('vermittlung_current_page')||'dashboard';
-    navigate(isEntryUser() ? 'order-entry' : (canPage(savedPage)?savedPage:'dashboard'));
+    navigate(isEntryUser() ? 'order-entry' : (isExternalCompany() ? 'company-portal' : (canPage(savedPage)?savedPage:'dashboard')));
   }else{
     $('#appView').classList.add('hidden');
     $('#loginView').classList.remove('hidden');
   }
+}
+
+
+async function renderExternalCompanyPortal(){
+ const {data:rows,error}=await db.rpc('vermittlung_firma_auftraege');
+ if(error){$('#main').innerHTML=page('Meine Aufträge',`<div class="panel"><h3>Aufträge konnten nicht geladen werden</h3><p class="message">${esc(error.message)}</p></div>`);return;}
+ const list=rows||[];
+ const cards=await Promise.all(list.map(async o=>{
+  const [mr,fr]=await Promise.all([
+   db.from('vermittlung_firmen_auftragsmeldungen').select('id,meldungstyp,nachricht,erstellt_am').eq('auftrag_id',o.id).order('erstellt_am',{ascending:false}),
+   db.from('vermittlung_firmen_auftragsfotos').select('id,dateiname,storage_pfad,fotoart,erstellt_am').eq('auftrag_id',o.id).order('erstellt_am',{ascending:false})
+  ]);
+  const photos=await Promise.all((fr.data||[]).map(async f=>{const {data}=await db.storage.from('vermittlung-firmenfotos').createSignedUrl(f.storage_pfad,600);return {f,url:data?.signedUrl};}));
+  return `<section class="panel" style="margin-bottom:16px"><div class="panel-title-row"><div><span class="eyebrow">${esc(o.auftragsnummer||'Auftrag')}</span><h3>${esc(o.bereich||'Auftrag')}</h3></div><span class="badge status">${esc(o.status||'Offen')}</span></div>
+  <div class="form-grid"><label>Objektadresse<input value="${esc(o.objekt_adresse||'—')}" disabled></label><label>Geplanter Beginn<input value="${esc(o.geplanter_beginn||'—')}" disabled></label><label class="full">Beschreibung<textarea disabled>${esc(o.beschreibung||'Keine Beschreibung hinterlegt.')}</textarea></label></div>
+  <div class="panel" style="margin-top:12px"><h4>Fortschritt / Status</h4><form class="company-message-form" data-order="${esc(o.id)}" style="display:grid;gap:10px"><textarea name="nachricht" required minlength="2" maxlength="5000" placeholder="Fortschritt, Rückfragen oder Hindernisse"></textarea><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="primary" type="submit">Meldung senden</button><select name="status"><option value="">Status nicht ändern</option><option value="In Ausführung">In Ausführung</option><option value="Abschluss gemeldet">Abschluss melden</option><option value="Nachbesserung erforderlich">Nachbesserung erforderlich</option></select><button type="button" class="secondary company-status-btn" data-order="${esc(o.id)}">Status melden</button></div></form></div>
+  <div class="panel" style="margin-top:12px"><h4>Fotos dokumentieren</h4><p class="muted">JPG, PNG oder WebP bis 10 MB. Für Abschlussmeldung mindestens ein Foto vom Typ „Abschluss“ hochladen.</p><form class="company-photo-form" data-order="${esc(o.id)}" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><input type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple required><select name="fotoart"><option value="Fortschritt">Fortschritt</option><option value="Abschluss">Abschluss</option></select><button class="primary">Fotos hochladen</button></form><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">${photos.map(({f,url})=>url?`<a href="${esc(url)}" target="_blank" rel="noopener" class="secondary" style="padding:8px 10px;border-radius:8px">${esc(f.dateiname)} · ${esc(f.fotoart)}</a>`:`<span class="muted">${esc(f.dateiname)} (nicht verfügbar)</span>`).join('')||'<span class="muted">Noch keine Fotos.</span>'}</div></div>
+  <div style="margin-top:12px"><h4>Verlauf</h4>${(mr.data||[]).map(x=>`<div style="padding:10px 0;border-bottom:1px solid #e2e8f0"><strong>${esc(x.meldungstyp)}</strong><p>${esc(x.nachricht)}</p><small class="muted">${x.erstellt_am?new Date(x.erstellt_am).toLocaleString('de-DE'):'—'}</small></div>`).join('')||'<p class="muted">Noch keine Meldungen.</p>'}</div></section>`;
+ }));
+ $('#main').innerHTML=page('Meine Aufträge',`<div class="panel"><h3>Willkommen, ${esc(currentUser?.name||'')}</h3><p class="muted">Sie sehen ausschließlich Ihrer Firma zugeordnete Aufträge.</p><strong>${list.length} zugeordnete Aufträge</strong></div>${cards.join('')||'<div class="panel"><p>Aktuell sind Ihrer Firma keine Aufträge zugeordnet.</p></div>'}`);
+ document.querySelectorAll('.company-message-form').forEach(form=>form.addEventListener('submit',async e=>{e.preventDefault();const {error}=await db.rpc('vermittlung_firma_meldung_erstellen',{p_auftrag_id:form.dataset.order,p_nachricht:form.querySelector('[name="nachricht"]').value,p_meldungstyp:'Fortschritt'});if(error){alert(error.message);return;}showToast('Meldung gespeichert');await renderExternalCompanyPortal();}));
+ document.querySelectorAll('.company-status-btn').forEach(btn=>btn.addEventListener('click',async()=>{const f=btn.closest('form'),status=f.querySelector('[name="status"]').value,note=f.querySelector('[name="nachricht"]').value;if(!status){alert('Bitte zuerst einen Status auswählen.');return;}const {error}=await db.rpc('vermittlung_firma_status_melden',{p_auftrag_id:btn.dataset.order,p_status:status,p_nachricht:note});if(error){alert(error.message);return;}showToast('Status gespeichert');await renderExternalCompanyPortal();}));
+ document.querySelectorAll('.company-photo-form').forEach(form=>form.addEventListener('submit',async e=>{e.preventDefault();const orderId=form.dataset.order,files=[...(form.querySelector('[name="photos"]').files||[])],fotoart=form.querySelector('[name="fotoart"]').value;if(!files.length)return;if(files.some(f=>f.size>10*1024*1024)){alert('Jedes Foto darf maximal 10 MB groß sein.');return;}const btn=form.querySelector('button');btn.disabled=true;try{for(const file of files){if(!['image/jpeg','image/png','image/webp'].includes(file.type))throw new Error('Nur JPG, PNG und WebP sind erlaubt.');const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,'_').slice(-100),path=`${currentUser.firma_id}/${orderId}/${crypto.randomUUID()}-${safe}`;const {error:up}=await db.storage.from('vermittlung-firmenfotos').upload(path,file,{contentType:file.type,upsert:false});if(up)throw up;const {error:meta}=await db.from('vermittlung_firmen_auftragsfotos').insert({auftrag_id:orderId,firma_id:currentUser.firma_id,hochgeladen_von:currentUser.authUserId,storage_pfad:path,dateiname:file.name,mime_type:file.type,dateigroesse:file.size,fotoart});if(meta){await db.storage.from('vermittlung-firmenfotos').remove([path]);throw meta;}}showToast('Fotos hochgeladen');await renderExternalCompanyPortal();}catch(err){alert('Foto-Upload fehlgeschlagen: '+(err?.message||'Unbekannter Fehler'));btn.disabled=false;}}));
 }
 
 let periodAccounts=[];
@@ -189,10 +213,12 @@ async function syncGoogle(){
 async function navigate(page){
   if(page==='commissions'||page==='reports') page='finance';
   if(isEntryUser()) page='order-entry';
-  if(!isAdmin() && page!=='order-entry') page='order-entry';
+  if(isExternalCompany()) page='company-portal';
+  if(!isAdmin() && !isEntryUser() && !isExternalCompany()) page='dashboard';
   localStorage.setItem('vermittlung_current_page',page);
   document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
   if(isEntryUser()){renderOrderEntry();return;}
+  if(isExternalCompany()){await renderExternalCompanyPortal();return;}
   await loadBase();
   ({dashboard:renderDashboard,orders:renderOrders,customers:renderCustomers,companies:renderCompanies,finance:renderCompanyFinance,commissions:renderCompanyFinance,reports:renderCompanyFinance,google:renderGoogle,settings:renderSettings}[page]||renderDashboard)();
 }
@@ -455,21 +481,53 @@ async function loadAppUsers(){
 function newAppUser(){
   const m=modal(`<h2>Benutzer anlegen</h2><form id="appUserForm" class="form-grid">
     <label>Name<input name="name" required></label><label>E-Mail<input name="email" type="email" required></label>
-    <label>Passwort<input name="password" type="password" minlength="8" required placeholder="mindestens 8 Zeichen"></label>
-    <label>Rolle<select name="rolle"><option value="Auftragserfassung">Auftragserfassung</option><option value="Administrator">Administrator</option></select></label>
+    <label>Passwort<input name="password" type="password" minlength="12" required placeholder="mindestens 12 Zeichen"></label>
+    <label>Rolle<select name="rolle" id="newUserRole"><option value="Auftragserfassung">Auftragserfassung</option><option value="Administrator">Administrator</option><option value="Externe Firma">Externe Firma</option></select></label>
+    <label class="full hidden" id="newUserCompanyWrap">Zugeordnete Firma<select name="firma_id" id="newUserCompany"><option value="">Firma auswählen</option></select></label>
     <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Benutzer speichern</button></div>
   </form>`);
-  m.querySelector('form').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await db.rpc('vermittlung_admin_create_user',{p_actor_email:currentUser.email,p_name:d.name,p_email:d.email,p_password:d.password,p_rolle:d.rolle});if(error){alert(error.message);return}m.remove();showToast('Benutzer angelegt');loadAppUsers();};
+  const role=m.querySelector('#newUserRole'),wrap=m.querySelector('#newUserCompanyWrap'),firm=m.querySelector('#newUserCompany');
+  firm.innerHTML='<option value="">Firma auswählen</option>'+companies.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.firmenname)+'</option>').join('');
+  role.addEventListener('change',()=>{const ext=role.value==='Externe Firma';wrap.classList.toggle('hidden',!ext);firm.required=ext;});
+  m.querySelector('form').onsubmit=async e=>{
+    e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());
+    if(d.rolle==='Externe Firma'){
+      const {data,error}=await db.functions.invoke('admin-create-app-user',{body:{name:d.name,email:d.email,password:d.password,rolle:d.rolle,firma_id:d.firma_id}});
+      if(error||!data?.ok){alert(data?.error||error?.message||'Benutzer konnte nicht angelegt werden.');return;}
+    }else{
+      const {error}=await db.rpc('vermittlung_admin_create_user',{p_actor_email:currentUser.email,p_name:d.name,p_email:d.email,p_password:d.password,p_rolle:d.rolle});
+      if(error){alert(error.message);return;}
+    }
+    m.remove();showToast('Benutzer angelegt');loadAppUsers();
+  };
 }
 function editAppUser(id,name,email,rolle,aktiv){
   const m=modal(`<h2>Benutzer bearbeiten</h2><form id="editAppUserForm" class="form-grid">
     <label>Name<input name="name" value="${esc(name)}" required></label><label>E-Mail<input name="email" type="email" value="${esc(email)}" required></label>
-    <label>Neue Rolle<select name="rolle"><option value="Auftragserfassung" ${rolle==='Auftragserfassung'?'selected':''}>Auftragserfassung</option><option value="Administrator" ${rolle==='Administrator'?'selected':''}>Administrator</option></select></label>
+    <label>Neue Rolle<select name="rolle" id="editUserRole"><option value="Auftragserfassung" ${rolle==='Auftragserfassung'?'selected':''}>Auftragserfassung</option><option value="Administrator" ${rolle==='Administrator'?'selected':''}>Administrator</option><option value="Externe Firma" ${rolle==='Externe Firma'?'selected':''}>Externe Firma</option></select></label>
     <label>Status<select name="aktiv"><option value="true" ${aktiv?'selected':''}>Aktiv</option><option value="false" ${!aktiv?'selected':''}>Deaktiviert</option></select></label>
-    <label class="full">Neues Passwort (leer lassen = unverändert)<input name="password" type="password" minlength="8"></label>
+    <label class="full hidden" id="editUserCompanyWrap">Zugeordnete Firma<select name="firma_id" id="editUserCompany"><option value="">Firma auswählen</option></select></label>
+    <label class="full">Neues Passwort (leer lassen = unverändert)<input name="password" type="password" minlength="12"></label>
     <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Änderungen speichern</button></div>
   </form>`);
-  m.querySelector('form').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await db.rpc('vermittlung_admin_update_user',{p_actor_email:currentUser.email,p_user_id:id,p_name:d.name,p_email:d.email,p_password:d.password||null,p_rolle:d.rolle,p_aktiv:d.aktiv==='true'});if(error){alert(error.message);return}m.remove();showToast('Benutzer geändert');loadAppUsers();};
+  const roleSelect=m.querySelector('#editUserRole'),wrap=m.querySelector('#editUserCompanyWrap'),firm=m.querySelector('#editUserCompany');
+  firm.innerHTML='<option value="">Firma auswählen</option>'+companies.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.firmenname)+'</option>').join('');
+  if(rolle==='Externe Firma'){
+    db.rpc('vermittlung_admin_get_user_firma',{p_user_id:id}).then(({data,error})=>{if(!error&&data)firm.value=data;});
+  }
+  const refreshFirm=()=>{const ext=roleSelect.value==='Externe Firma';wrap.classList.toggle('hidden',!ext);firm.required=ext;};
+  roleSelect.addEventListener('change',refreshFirm);refreshFirm();
+  m.querySelector('form').onsubmit=async e=>{
+    e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());
+    const {error}=await db.rpc('vermittlung_admin_update_user',{p_actor_email:currentUser.email,p_user_id:id,p_name:d.name,p_email:d.email,p_password:d.password||null,p_rolle:d.rolle,p_aktiv:d.aktiv==='true'});
+    if(error){alert(error.message);return;}
+    if(d.rolle==='Externe Firma'){
+      if(!d.firma_id){alert('Bitte eine Firma zuordnen.');return;}
+      const {error:assignError}=await db.rpc('vermittlung_admin_assign_firma',{p_user_id:id,p_firma_id:d.firma_id});
+      if(assignError){alert('Benutzer geändert, aber Firmenzuordnung fehlgeschlagen: '+assignError.message);return;}
+    }
+    m.remove();showToast('Benutzer geändert');loadAppUsers();
+  };
 }
 async function deleteAppUser(id){if(!confirm('Diesen Benutzer wirklich löschen?'))return;const {error}=await db.rpc('vermittlung_admin_delete_user',{p_actor_email:currentUser.email,p_user_id:id});if(error){alert(error.message);return}showToast('Benutzer gelöscht');loadAppUsers();}
 
