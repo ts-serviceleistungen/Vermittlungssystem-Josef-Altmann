@@ -1,5 +1,7 @@
 name: Firmenportal Build und Paket
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
