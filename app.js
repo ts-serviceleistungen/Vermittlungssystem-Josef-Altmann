@@ -504,12 +504,27 @@ function newAppUser(){
 function editAppUser(id,name,email,rolle,aktiv){
   const m=modal(`<h2>Benutzer bearbeiten</h2><form id="editAppUserForm" class="form-grid">
     <label>Name<input name="name" value="${esc(name)}" required></label><label>E-Mail<input name="email" type="email" value="${esc(email)}" required></label>
-    <label>Neue Rolle<select name="rolle"><option value="Auftragserfassung" ${rolle==='Auftragserfassung'?'selected':''}>Auftragserfassung</option><option value="Administrator" ${rolle==='Administrator'?'selected':''}>Administrator</option></select></label>
+    <label>Neue Rolle<select name="rolle" id="editUserRole"><option value="Auftragserfassung" ${rolle==='Auftragserfassung'?'selected':''}>Auftragserfassung</option><option value="Administrator" ${rolle==='Administrator'?'selected':''}>Administrator</option><option value="Externe Firma" ${rolle==='Externe Firma'?'selected':''}>Externe Firma</option></select></label>
     <label>Status<select name="aktiv"><option value="true" ${aktiv?'selected':''}>Aktiv</option><option value="false" ${!aktiv?'selected':''}>Deaktiviert</option></select></label>
-    <label class="full">Neues Passwort (leer lassen = unverändert)<input name="password" type="password" minlength="8"></label>
+    <label class="full hidden" id="editUserCompanyWrap">Zugeordnete Firma<select name="firma_id" id="editUserCompany"><option value="">Firma auswählen</option></select></label>
+    <label class="full">Neues Passwort (leer lassen = unverändert)<input name="password" type="password" minlength="12"></label>
     <div class="full actions"><button type="button" class="close" onclick="this.closest('.modal').remove()">Abbrechen</button><button class="primary">Änderungen speichern</button></div>
   </form>`);
-  m.querySelector('form').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await db.rpc('vermittlung_admin_update_user',{p_actor_email:currentUser.email,p_user_id:id,p_name:d.name,p_email:d.email,p_password:d.password||null,p_rolle:d.rolle,p_aktiv:d.aktiv==='true'});if(error){alert(error.message);return}m.remove();showToast('Benutzer geändert');loadAppUsers();};
+  const roleSelect=m.querySelector('#editUserRole'),wrap=m.querySelector('#editUserCompanyWrap'),firm=m.querySelector('#editUserCompany');
+  firm.innerHTML='<option value="">Firma auswählen</option>'+companies.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.firmenname)+'</option>').join('');
+  const refreshFirm=()=>{const ext=roleSelect.value==='Externe Firma';wrap.classList.toggle('hidden',!ext);firm.required=ext;};
+  roleSelect.addEventListener('change',refreshFirm);refreshFirm();
+  m.querySelector('form').onsubmit=async e=>{
+    e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());
+    const {error}=await db.rpc('vermittlung_admin_update_user',{p_actor_email:currentUser.email,p_user_id:id,p_name:d.name,p_email:d.email,p_password:d.password||null,p_rolle:d.rolle,p_aktiv:d.aktiv==='true'});
+    if(error){alert(error.message);return;}
+    if(d.rolle==='Externe Firma'){
+      if(!d.firma_id){alert('Bitte eine Firma zuordnen.');return;}
+      const {error:assignError}=await db.rpc('vermittlung_admin_assign_firma',{p_user_id:id,p_firma_id:d.firma_id});
+      if(assignError){alert('Benutzer geändert, aber Firmenzuordnung fehlgeschlagen: '+assignError.message);return;}
+    }
+    m.remove();showToast('Benutzer geändert');loadAppUsers();
+  };
 }
 async function deleteAppUser(id){if(!confirm('Diesen Benutzer wirklich löschen?'))return;const {error}=await db.rpc('vermittlung_admin_delete_user',{p_actor_email:currentUser.email,p_user_id:id});if(error){alert(error.message);return}showToast('Benutzer gelöscht');loadAppUsers();}
 
