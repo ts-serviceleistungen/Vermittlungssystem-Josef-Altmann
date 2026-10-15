@@ -162,7 +162,7 @@ as $$ begin if auth.uid() is null or not exists(select 1 from public.vermittlung
 do $$
 declare t text; p record;
 begin
- foreach t in array array['vermittlung_auftraege','vermittlung_firmen','vermittlung_kunden','vermittlung_dokumente','vermittlung_verlauf','vermittlung_provisionen','vermittlung_auftragsabrechnungen','vermittlung_auftragsdokumente'] loop
+ foreach t in array array['vermittlung_auftraege','vermittlung_firmen','vermittlung_kunden','vermittlung_dokumente','vermittlung_verlauf','vermittlung_provisionen','vermittlung_auftragsabrechnungen','vermittlung_auftragsdokumente','vermittlung_firmen_provision_monat'] loop
   if to_regclass('public.'||t) is not null then
    for p in select policyname from pg_policies where schemaname='public' and tablename=t loop execute format('drop policy %I on public.%I',p.policyname,t); end loop;
    execute format('alter table public.%I enable row level security',t);
@@ -188,6 +188,8 @@ create policy firmenfotos_select_scoped on public.vermittlung_firmen_auftragsfot
 create policy firmenfotos_insert_scoped on public.vermittlung_firmen_auftragsfotos for insert to authenticated with check (
  public.vermittlung_current_role()='Externe Firma' and firma_id=public.vermittlung_current_firma_id() and hochgeladen_von=auth.uid() and exists(select 1 from public.vermittlung_auftraege a where a.id=auftrag_id and a.ausfuehrende_firma_id=public.vermittlung_current_firma_id()));
 grant select,insert on public.vermittlung_firmen_auftragsmeldungen,public.vermittlung_firmen_auftragsfotos to authenticated;
+revoke all on public.vermittlung_firmen_auftragsmeldungen,public.vermittlung_firmen_auftragsfotos from anon;
+revoke all on public.vermittlung_firmen_auftragsmeldungen,public.vermittlung_firmen_auftragsfotos from public;
 
 insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('vermittlung-firmenfotos','vermittlung-firmenfotos',false,10485760,array['image/jpeg','image/png','image/webp']) on conflict(id) do update set public=false,file_size_limit=10485760,allowed_mime_types=array['image/jpeg','image/png','image/webp'];
 drop policy if exists vermittlung_firmenfotos_insert on storage.objects;
