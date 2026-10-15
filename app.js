@@ -243,6 +243,9 @@ async function syncGoogle(){
 }
 
 async function navigate(page){
+  // Administratoren, die den Firmenportal-Link aus einer älteren UI-Version aufrufen,
+  // landen in der normalen Auftragsliste statt ungewollt auf dem Dashboard.
+  if(page==='company-portal' && isAdmin()) page='orders';
   if(page==='commissions'||page==='reports') page='finance';
   if(isEntryUser()) page='order-entry';
   if(isExternalCompany()) page='company-portal';
