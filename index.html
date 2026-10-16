@@ -7,7 +7,7 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <title>Vermittlungssystem Josef Altmann</title>
-<link rel="stylesheet" href="style.css?v=4353109">
+<link rel="stylesheet" href="style.css?v=notify1">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 </head>
@@ -29,7 +29,7 @@
 <div id="appView" class="hidden">
 <header class="topbar">
   <div class="brand"><div class="brand-mark small">JA</div><div><strong>Vermittlungssystem</strong><small>Josef Altmann</small></div></div>
-  <div class="top-actions"><span id="userName"></span><button id="logoutBtn" class="ghost">Abmelden</button></div>
+  <div class="top-actions"><span id="userName"></span><button id="notificationBtn" class="ghost notification-btn" type="button" aria-label="Benachrichtigungen">🔔 <span id="notificationCount" class="notification-count hidden">0</span></button><button id="logoutBtn" class="ghost">Abmelden</button></div>
 </header>
 <div class="layout">
 <aside class="sidebar">
@@ -46,7 +46,7 @@
 </div>
 </div>
 <div id="toast" class="toast"></div>
-<script src="app.js?v=2ed09d5"></script>
+<script src="app.js?v=notify1"></script>
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(err => console.error("Service Worker konnte nicht registriert werden:", err)));
