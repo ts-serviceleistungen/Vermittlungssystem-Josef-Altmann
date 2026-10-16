@@ -29,6 +29,62 @@ function applyRoleUI(){
   document.querySelectorAll('.nav').forEach(b=>{const ok=(isAdmin()&&b.dataset.page!=='reports')||(isEntryUser()&&b.dataset.page==='order-entry')||(isExternalCompany()&&b.dataset.page==='company-portal');b.classList.toggle('hidden',!ok);});
 }
 
+
+let notificationTimer=null, notificationReady=false, notificationCursors={}, notificationItems=[];
+function notificationTime(v){return new Date(v||Date.now()).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'});}
+function updateNotificationUI(){
+ const count=$('#notificationCount'),panel=$('#notificationPanel');
+ if(count){count.textContent=String(notificationItems.length);count.classList.toggle('hidden',!notificationItems.length);}
+ if(panel&&!panel.classList.contains('hidden'))renderNotificationPanel();
+}
+function addAppNotification(title,body,kind,pageName){
+ const item={id:kind+'-'+Date.now()+'-'+Math.random().toString(36).slice(2),title:title,body:body,kind:kind,page:pageName,at:new Date().toISOString()};
+ notificationItems.unshift(item);notificationItems=notificationItems.slice(0,30);updateNotificationUI();showToast(title+' — '+body);
+ if(document.hidden&&'Notification' in window&&Notification.permission==='granted'){try{new Notification(title,{body:body,tag:item.id,icon:'./icon-192.png'});}catch(e){}}
+}
+function renderNotificationPanel(){
+ let panel=$('#notificationPanel');
+ if(!panel){panel=document.createElement('div');panel.id='notificationPanel';panel.className='notification-panel hidden';document.body.appendChild(panel);}
+ panel.innerHTML='<div class="notification-panel-head"><strong>Benachrichtigungen</strong><button type="button" class="secondary" id="notificationClose">Schließen</button></div>'+
+ (notificationItems.length?notificationItems.map(n=>'<button type="button" class="notification-item" data-notification-id="'+esc(n.id)+'"><strong>'+esc(n.title)+'</strong><span>'+esc(n.body)+'</span><small>'+esc(notificationTime(n.at))+'</small></button>').join(''):'<p class="muted notification-empty">Noch keine neuen Meldungen.</p>')+
+ '<div class="notification-panel-foot"><button type="button" class="secondary" id="enableBrowserNotifications">Handy-Benachrichtigungen aktivieren</button></div>';
+ panel.querySelector('#notificationClose').onclick=()=>panel.classList.add('hidden');
+ panel.querySelector('#enableBrowserNotifications').onclick=async()=>{if(!('Notification' in window)){showToast('Dieser Browser unterstützt keine Benachrichtigungen.');return;}const p=await Notification.requestPermission();showToast(p==='granted'?'Browser-Benachrichtigungen aktiviert, solange die App läuft.':'Benachrichtigungen nicht freigegeben.');};
+ panel.querySelectorAll('[data-notification-id]').forEach(b=>b.onclick=()=>{const n=notificationItems.find(x=>x.id===b.dataset.notificationId);panel.classList.add('hidden');if(n&&n.page)navigate(n.page);});
+}
+function toggleNotificationPanel(){renderNotificationPanel();$('#notificationPanel').classList.toggle('hidden');}
+async function notificationLatest(table,field){const r=await db.from(table).select(field).order(field,{ascending:false}).limit(1);if(r.error){console.warn('Benachrichtigungen '+table+': '+r.error.message);return null;}return r.data&&r.data[0]?r.data[0][field]:null;}
+async function initializeNotifications(){
+ if(!isAdmin()||notificationTimer)return;
+ const values=await Promise.all([notificationLatest('vermittlung_auftraege','erstellt_am'),notificationLatest('vermittlung_firmen_auftragsmeldungen','erstellt_am'),notificationLatest('vermittlung_firmen_auftragsfotos','erstellt_am'),notificationLatest('requests','created_at')]);
+ notificationCursors={orders:values[0],messages:values[1],photos:values[2],requests:values[3]};notificationReady=true;
+ notificationTimer=window.setInterval(checkAppNotifications,25000);
+}
+async function checkAppNotifications(){
+ if(!isAdmin()||!notificationReady)return;
+ const checks=[
+ {key:'orders',table:'vermittlung_auftraege',field:'erstellt_am',select:'id,auftragsnummer,bereich,erstellt_am',title:'Neuer Auftrag',page:'orders'},
+ {key:'messages',table:'vermittlung_firmen_auftragsmeldungen',field:'erstellt_am',select:'id,auftrag_id,meldungstyp,nachricht,erstellt_am',title:'Update einer externen Firma',page:'company-reviews'},
+ {key:'photos',table:'vermittlung_firmen_auftragsfotos',field:'erstellt_am',select:'id,auftrag_id,dateiname,fotoart,erstellt_am',title:'Neue Auftragsfotos',page:'company-reviews'},
+ {key:'requests',table:'requests',field:'created_at',select:'id,created_at,first_name,last_name,service_type,status',title:'Neue Website-Anfrage',page:'orders'}
+ ];
+ for(const item of checks){
+  let q=db.from(item.table).select(item.select).order(item.field,{ascending:true}).limit(20);
+  if(notificationCursors[item.key])q=q.gt(item.field,notificationCursors[item.key]);
+  const result=await q;if(result.error){console.warn('Benachrichtigungen '+item.table+': '+result.error.message);continue;}
+  const rows=result.data||[];
+  for(const row of rows){
+   let body='';
+   if(item.key==='orders')body=(row.auftragsnummer||'Auftrag')+' · '+(row.bereich||'Bereich nicht angegeben');
+   if(item.key==='messages')body=(row.meldungstyp||'Meldung')+' · '+(row.nachricht||'').slice(0,120);
+   if(item.key==='photos')body=(row.fotoart||'Foto')+' · '+(row.dateiname||'Datei')+' hochgeladen';
+   if(item.key==='requests')body=[row.first_name,row.last_name].filter(Boolean).join(' ')+' · '+(row.service_type||'Leistung nicht angegeben');
+   addAppNotification(item.title,body,item.key,item.page);
+  }
+  if(rows.length)notificationCursors[item.key]=rows[rows.length-1][item.field]||notificationCursors[item.key];
+ }
+}
+
 document.addEventListener('DOMContentLoaded', async ()=>{
   $('#loginForm').addEventListener('submit', login);
   $('#logoutBtn').addEventListener('click', logout);
@@ -38,6 +94,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   if(commissionNav){commissionNav.dataset.page='finance';commissionNav.textContent='Firmen & Abrechnung';}
   if(reportsNav)reportsNav.classList.add('hidden');
   document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
+  $('#notificationBtn')?.addEventListener('click',toggleNotificationPanel);
 
   // Beim Laden ausschließlich eine echte Supabase-Sitzung wiederherstellen.
   const {data:{session},error}=await db.auth.getSession();
@@ -80,6 +137,7 @@ async function loadCurrentUser(){
   currentUser={id:profile.id,name:profile.name,email:profile.email,rolle:profile.rolle,authUserId:authUser.id,firma_id:extraError?null:extraProfile?.firma_id||null};
   if(currentUser.rolle==='Externe Firma'&&!currentUser.firma_id){await db.auth.signOut();currentUser=null;renderAuth();$('#loginMsg').textContent='Für dieses Konto fehlt die Firmenzuordnung. Bitte Administrator kontaktieren.';return false;}
   renderAuth();
+  if(isAdmin()) initializeNotifications();
   return true;
 }
 
@@ -118,6 +176,7 @@ async function logout(){
     return;
   }
   currentUser=null;
+  if(notificationTimer){clearInterval(notificationTimer);notificationTimer=null;}notificationReady=false;notificationItems=[];updateNotificationUI();
   renderAuth();
 }
 
