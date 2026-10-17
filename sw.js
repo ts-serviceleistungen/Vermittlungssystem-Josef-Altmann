@@ -1,6 +1,6 @@
-const CACHE = 'vermittlungssystem-v7';
+const CACHE = 'vermittlungssystem-v8';
 const APP_SHELL = [
-  './', './index.html', './style.css?v=notify2', './app.js?v=emailfix1', './config.js', './manifest.json',
+  './', './index.html', './style.css?v=notify2', './app.js?v=emailfix2', './config.js', './manifest.json',
   './icon-192.png', './icon-512.png'
 ];
 
