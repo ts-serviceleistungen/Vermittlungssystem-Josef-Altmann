@@ -16,7 +16,7 @@ function showToast(message){
   el._hideTimer=setTimeout(()=>{el.style.display='none';},3500);
 }
 let currentUser=null, customers=[], companies=[], orders=[];
-async function sendSystemEmailNotification(eventType,details){try{const {data,error}=await db.functions.invoke('notify-system-event',{body:{event_type:eventType,details:details||{}}});if(error)console.warn('E-Mail-Benachrichtigung fehlgeschlagen:',error.message);else if(data?.error)console.warn('E-Mail-Benachrichtigung:',data.error);}catch(err){console.warn('E-Mail-Benachrichtigung fehlgeschlagen:',err?.message||err);}}
+async function sendSystemEmailNotification(eventType,details){try{const {data,error}=await db.functions.invoke('notify-system-event',{body:{event_type:eventType,details:details||{}}});if(error){console.error('E-Mail-Benachrichtigung fehlgeschlagen:',error);return {ok:false,error:error.message||'Aufruf fehlgeschlagen'};}if(data?.error||data?.ok===false){const reason=data?.error||data?.result?.message||'Versand abgelehnt';console.error('E-Mail-Benachrichtigung fehlgeschlagen:',data);return {ok:false,error:reason};}return {ok:true};}catch(err){console.error('E-Mail-Benachrichtigung fehlgeschlagen:',err);return {ok:false,error:err?.message||String(err)};}}
 
 const ADMIN_ROLE='Administrator';
 const ENTRY_ROLE='Auftragserfassung';
@@ -667,7 +667,7 @@ function newOrder(){
     for(const k of ['kostenvoranschlag_netto','kostenvoranschlag_brutto','auftragswert_netto'])d[k]=Number(d[k]||0);
     d.versicherung=d.versicherung===''?null:d.versicherung==='true'; d.created_by=currentUser.email; d.wiederholung=d.wiederholung||'Einmalig'; d.wiederholung_aktiv=d.wiederholung!=='Einmalig'; d.wiederholung_beginn=d.wiederholung_beginn||d.geplanter_beginn||new Date().toISOString().slice(0,10); d.wiederholung_ende=d.wiederholung_ende||null;
     const {data:created,error}=await db.from('vermittlung_auftraege').insert(d).select('id').single();
-    if(!error)sendSystemEmailNotification('new_order',{order_id:created.id,order_number:d.auftragsnummer,area:d.bereich,description:d.beschreibung,status:d.status,created_by:currentUser?.email});
+    let mailResult=null; if(!error) mailResult=await sendSystemEmailNotification('new_order',{order_id:created.id,order_number:d.auftragsnummer,area:d.bereich,description:d.beschreibung,status:d.status,created_by:currentUser?.email});
     if(error){btn.disabled=false;msg.textContent='Auftrag konnte nicht gespeichert werden: '+error.message;return;}
     let failed=[];
     for(let i=0;i<files.length;i++){
@@ -678,7 +678,7 @@ function newOrder(){
     }
     m.remove();
     if(failed.length)alert('Der Auftrag wurde gespeichert, aber einige Dateien konnten nicht hochgeladen werden:\n\n'+failed.join('\n'));
-    else showToast(files.length?`Auftrag und ${files.length} Dokument(e) gespeichert`:'Auftrag gespeichert');
+    else if(mailResult?.ok===false) showToast('Auftrag gespeichert, aber E-Mail-Versand fehlgeschlagen. Bitte Administrator informieren.'); else showToast(files.length?`Auftrag und ${files.length} Dokument(e) gespeichert`:'Auftrag gespeichert – E-Mail versendet');
     navigate('orders');
   };
 }
