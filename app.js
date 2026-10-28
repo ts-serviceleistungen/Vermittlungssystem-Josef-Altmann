@@ -58,14 +58,15 @@ function toggleNotificationPanel(){renderNotificationPanel();$('#notificationPan
 async function notificationLatest(table,field){const r=await db.from(table).select(field).order(field,{ascending:false}).limit(1);if(r.error){console.warn('Benachrichtigungen '+table+': '+r.error.message);return null;}return r.data&&r.data[0]?r.data[0][field]:null;}
 async function initializeNotifications(){
  if(!isAdmin()||notificationTimer)return;
- const values=await Promise.all([notificationLatest('vermittlung_auftraege','erstellt_am'),notificationLatest('vermittlung_firmen_auftragsmeldungen','erstellt_am'),notificationLatest('vermittlung_firmen_auftragsfotos','erstellt_am'),notificationLatest('requests','created_at')]);
- notificationCursors={orders:values[0],messages:values[1],photos:values[2],requests:values[3]};notificationReady=true;
+ const values=await Promise.all([notificationLatest('vermittlung_auftraege','erstellt_am'),notificationLatest('vermittlung_auftraege','updated_at'),notificationLatest('vermittlung_firmen_auftragsmeldungen','erstellt_am'),notificationLatest('vermittlung_firmen_auftragsfotos','erstellt_am'),notificationLatest('requests','created_at')]);
+ notificationCursors={orders:values[0],orderUpdates:values[1],messages:values[2],photos:values[3],requests:values[4]};notificationReady=true;
  notificationTimer=window.setInterval(checkAppNotifications,25000);
 }
 async function checkAppNotifications(){
  if(!isAdmin()||!notificationReady)return;
  const checks=[
  {key:'orders',table:'vermittlung_auftraege',field:'erstellt_am',select:'id,auftragsnummer,bereich,erstellt_am',title:'Neuer Auftrag',page:'orders'},
+ {key:'orderUpdates',table:'vermittlung_auftraege',field:'updated_at',select:'id,auftragsnummer,bereich,status,updated_at',title:'Auftrag geändert',page:'orders'},
  {key:'messages',table:'vermittlung_firmen_auftragsmeldungen',field:'erstellt_am',select:'id,auftrag_id,meldungstyp,nachricht,erstellt_am',title:'Update einer externen Firma',page:'company-reviews'},
  {key:'photos',table:'vermittlung_firmen_auftragsfotos',field:'erstellt_am',select:'id,auftrag_id,dateiname,fotoart,erstellt_am',title:'Neue Auftragsfotos',page:'company-reviews'},
  {key:'requests',table:'requests',field:'created_at',select:'id,created_at,first_name,last_name,service_type,status',title:'Neue Website-Anfrage',page:'orders'}
