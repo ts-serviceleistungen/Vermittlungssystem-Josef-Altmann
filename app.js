@@ -79,6 +79,7 @@ async function checkAppNotifications(){
   for(const row of rows){
    let body='';
    if(item.key==='orders')body=(row.auftragsnummer||'Auftrag')+' · '+(row.bereich||'Bereich nicht angegeben');
+   if(item.key==='orderUpdates')body=(row.auftragsnummer||'Auftrag')+' · '+(row.bereich||'Bereich nicht angegeben')+' · Status: '+(row.status||'unverändert');
    if(item.key==='messages')body=(row.meldungstyp||'Meldung')+' · '+(row.nachricht||'').slice(0,120);
    if(item.key==='photos')body=(row.fotoart||'Foto')+' · '+(row.dateiname||'Datei')+' hochgeladen';
    if(item.key==='requests')body=[row.first_name,row.last_name].filter(Boolean).join(' ')+' · '+(row.service_type||'Leistung nicht angegeben');
